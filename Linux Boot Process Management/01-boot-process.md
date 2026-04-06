@@ -1,7 +1,7 @@
 # Chapter 1: Linux Boot Process Management
 
 ## Overview
-
+**Author: ROOPA DEVi MIRIYALA** <Br>
 **File:** `01-boot-process.yml`  
 **Duration:** 5-10 minutes  
 **Difficulty:** ⭐ Beginner  
@@ -756,13 +756,5 @@ After completing Chapter 1:
 
 ---
 
-## Additional Resources
-
-- **Official systemd Docs:** https://www.freedesktop.org/software/systemd/man/
-- **GRUB2 Documentation:** https://www.gnu.org/software/grub/
-- **Ansible Documentation:** https://docs.ansible.com/
-- **Linux Boot Process:** https://en.wikipedia.org/wiki/Linux_startup_process
-
----
 
 **Chapter 1 Complete! Ready for Chapter 2?** 🚀
