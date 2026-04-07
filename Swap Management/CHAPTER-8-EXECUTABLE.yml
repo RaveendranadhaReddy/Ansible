@@ -1,0 +1,1053 @@
+---
+# ============================================================
+# CHAPTER 8: SWAP MANAGEMENT
+# ============================================================
+# READY TO EXECUTE VERSION - All 45+ Tasks
+#
+# Duration: 20-30 minutes
+# Difficulty: ⭐⭐ Intermediate
+# Prerequisites: Root/sudo access, Chapters 1-7 completed
+#
+# Usage:
+#   ansible-playbook -i inventory.ini CHAPTER-8-EXECUTABLE.yml -v
+#
+# Before running:
+#   1. Update inventory.ini with your server IPs
+#   2. Test connectivity: ansible all -i inventory.ini -m ping
+#   3. Run syntax check: ansible-playbook -i inventory.ini CHAPTER-8-EXECUTABLE.yml --syntax-check
+#
+# ============================================================
+
+- name: Chapter 8 - Swap Management
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    # Swap configuration
+    swap_config:
+      - name: "swap_partition"
+        device: "/dev/sdb1"
+        type: "partition"
+        size: "4G"
+        description: "Swap partition on secondary disk"
+      
+      - name: "swap_file"
+        path: "/swapfile"
+        type: "file"
+        size: "2G"
+        description: "Swap file on root filesystem"
+      
+      - name: "swap_lvm"
+        device: "/dev/data_vg/lv_swap"
+        type: "lvm"
+        size: "2G"
+        description: "Swap on LVM logical volume"
+
+    # Memory settings
+    memory_thresholds:
+      warning: "80"
+      critical: "95"
+
+    # Swap tuning parameters
+    vm_settings:
+      swappiness: "30"
+      page_cluster: "3"
+      vfs_cache_pressure: "100"
+
+  tasks:
+
+    # ==========================================================
+    # TASK 8.1: Display Chapter 8 Header
+    # ==========================================================
+    - name: 8.1 - Display Chapter 8 Header
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          CHAPTER 8: SWAP MANAGEMENT
+          ==========================================
+          Duration: 20-30 minutes
+          Difficulty: ⭐⭐ Intermediate
+          Total Tasks: 45+
+          
+          Topics:
+          - Swap space concepts
+          - Swap on partitions
+          - Swap files
+          - Swap on LVM
+          - Memory management
+          - Swap optimization
+          - Monitoring swap
+          - Troubleshooting
+          - Performance tuning
+          ==========================================
+
+    # ==========================================================
+    # TASK 8.2: Display swap concepts
+    # ==========================================================
+    - name: 8.2 - Display swap concepts
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          SWAP SPACE CONCEPTS
+          ==========================================
+          
+          What is swap?
+          - Virtual memory on disk
+          - Used when physical RAM full
+          - Much slower than RAM (~1000x)
+          - Necessary for hibernation
+          - Can prevent out-of-memory kills
+          
+          When is swap used?
+          - System has no free RAM
+          - Application requires more memory
+          - Heavy workloads exceed RAM
+          - Hibernation saves to swap
+          
+          Swap vs RAM Performance:
+          RAM: ~10-50GB/s, microseconds latency
+          Swap (SSD): ~500MB/s, milliseconds latency
+          Swap (HDD): ~50MB/s, milliseconds latency
+          
+          Types of swap:
+          1. Swap partition: Dedicated disk space
+          2. Swap file: File on filesystem
+          3. Swap on LVM: Logical volume
+          4. zRAM: Compressed in-memory swap
+          
+          Swap sizing:
+          Desktop: 1-2x RAM
+          Server: 0-1x RAM
+          Development: 2x RAM (testing)
+          Hibernation: Equal to RAM
+          
+          Example calculations:
+          16GB RAM → 16GB swap (hibernation)
+          16GB RAM → 8GB swap (safe buffer)
+          16GB RAM → 0GB swap (if monitoring)
+          ==========================================
+
+    # ==========================================================
+    # TASK 8.3: Check current memory
+    # ==========================================================
+    - name: 8.3 - Check current memory
+      ansible.builtin.shell: "free -h"
+      register: memory_info
+      changed_when: false
+
+    # ==========================================================
+    # TASK 8.4: Display memory information
+    # ==========================================================
+    - name: 8.4 - Display memory information
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          CURRENT MEMORY STATUS
+          ==========================================
+          {{ memory_info.stdout }}
+          
+          Understanding the output:
+          total  = Total amount of memory
+          used   = Currently used
+          free   = Not in use
+          shared = Shared memory
+          buffer = Disk buffers
+          cached = Cached pages
+          
+          Calculation:
+          available ≈ free + buffers + cached
+          
+          Healthy system:
+          - Free memory: >10% of total
+          - Swap usage: <25% of total swap
+          - Available: >20% of total RAM
+          ==========================================
+
+    # ==========================================================
+    # TASK 8.5: Check current swap
+    # ==========================================================
+    - name: 8.5 - Check current swap status
+      ansible.builtin.shell: "swapon -s"
+      register: swap_status
+      changed_when: false
+      failed_when: false
+
+    # ==========================================================
+    # TASK 8.6: Display swap status
+    # ==========================================================
+    - name: 8.6 - Display swap status
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          CURRENT SWAP STATUS
+          ==========================================
+          {{ swap_status.stdout }}
+          
+          Understanding swap columns:
+          Filename  = Device or file path
+          Type      = partition or file
+          Size      = Total swap size
+          Used      = Currently used
+          Priority  = Order of use (higher first)
+          
+          View with command:
+          $ swapon -s
+          $ swapon -a (activate all)
+          $ swapon -v (verbose)
+          
+          Check free swap:
+          $ free -h | grep Swap
+          
+          Monitor swap usage:
+          $ watch -n 1 'free -h'
+          ==========================================
+
+    # ==========================================================
+    # TASK 8.7: Display swap partition concepts
+    # ==========================================================
+    - name: 8.7 - Display swap partition concepts
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          SWAP PARTITION
+          ==========================================
+          
+          What is swap partition?
+          - Dedicated disk space for swap
+          - Faster than swap files
+          - Fixed size
+          - Best for high-performance needs
+          
+          Create swap partition:
+          
+          1. Create partition:
+          $ fdisk /dev/sdb
+          n = new partition
+          t = change type to Linux swap
+          w = write changes
+          
+          2. Create swap on partition:
+          $ mkswap /dev/sdb1
+          $ mkswap -L "swap1" /dev/sdb1  (with label)
+          
+          3. Enable swap:
+          $ swapon /dev/sdb1
+          
+          4. Add to /etc/fstab:
+          /dev/sdb1 none swap sw 0 0
+          
+          5. Verify:
+          $ swapon -s
+          $ free -h
+          
+          Advantages:
+          ✓ Faster than files
+          ✓ No filesystem overhead
+          ✓ Reliable
+          ✓ Good for production
+          
+          Disadvantages:
+          ✗ Fixed size
+          ✗ Risky to resize
+          ✗ Requires disk planning
+          ✗ Can't move easily
+          
+          Disable swap partition:
+          $ swapoff /dev/sdb1
+          $ fdisk /dev/sdb (delete partition)
+          ==========================================
+
+    # ==========================================================
+    # TASK 8.8: Display swap file concepts
+    # ==========================================================
+    - name: 8.8 - Display swap file concepts
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          SWAP FILE
+          ==========================================
+          
+          What is swap file?
+          - File on existing filesystem
+          - Easier to manage
+          - Can be resized
+          - Slightly slower than partition
+          
+          Create swap file:
+          
+          Method 1: Using dd (fast):
+          $ dd if=/dev/zero of=/swapfile bs=1G count=4
+          (Creates 4GB swap file)
+          
+          Method 2: Using fallocate (fastest):
+          $ fallocate -l 4G /swapfile
+          
+          Method 3: Using truncate:
+          $ truncate -s 4G /swapfile
+          
+          2. Set permissions:
+          $ chmod 600 /swapfile
+          (Only root can read)
+          
+          3. Format as swap:
+          $ mkswap /swapfile
+          $ mkswap -L "swap_file" /swapfile
+          
+          4. Enable swap:
+          $ swapon /swapfile
+          
+          5. Add to /etc/fstab:
+          /swapfile none swap sw 0 0
+          
+          6. Verify:
+          $ swapon -s
+          $ ls -lh /swapfile
+          
+          Advantages:
+          ✓ Easy to create
+          ✓ Can resize
+          ✓ No partition needed
+          ✓ Flexible placement
+          
+          Disadvantages:
+          ✗ Slightly slower
+          ✗ Filesystem fragmentation
+          ✗ May cause issues on ext3
+          ✗ Harder to move
+          
+          Resize swap file:
+          $ swapoff /swapfile
+          $ fallocate -l 8G /swapfile
+          $ mkswap /swapfile
+          $ swapon /swapfile
+          ==========================================
+
+    # ==========================================================
+    # TASK 8.9: Display swap on LVM
+    # ==========================================================
+    - name: 8.9 - Display swap on LVM concepts
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          SWAP ON LVM
+          ==========================================
+          
+          What is swap on LVM?
+          - Swap on logical volume
+          - Combines partition and file benefits
+          - Flexible sizing
+          - Can expand/reduce
+          - Good for enterprise
+          
+          Create LVM swap:
+          
+          1. Create logical volume:
+          $ lvcreate -L 4G -n lv_swap data_vg
+          
+          2. Format as swap:
+          $ mkswap /dev/data_vg/lv_swap
+          
+          3. Enable swap:
+          $ swapon /dev/data_vg/lv_swap
+          
+          4. Add to /etc/fstab:
+          /dev/data_vg/lv_swap none swap sw 0 0
+          
+          5. Verify:
+          $ swapon -s
+          $ lvs -o lv_name,lv_size
+          
+          Advantages:
+          ✓ Very flexible
+          ✓ Easy to resize online
+          ✓ Can move between disks
+          ✓ Good performance
+          ✓ Easy management
+          
+          Disadvantages:
+          ✗ LVM complexity
+          ✗ Requires LVM knowledge
+          ✗ One more layer
+          
+          Resize LVM swap (online):
+          1. Extend logical volume:
+          $ lvextend -L +2G /dev/data_vg/lv_swap
+          
+          2. Disable swap:
+          $ swapoff /dev/data_vg/lv_swap
+          
+          3. Reformat:
+          $ mkswap /dev/data_vg/lv_swap
+          
+          4. Enable swap:
+          $ swapon /dev/data_vg/lv_swap
+          
+          ==========================================
+
+    # ==========================================================
+    # TASK 8.10: Display memory management tuning
+    # ==========================================================
+    - name: 8.10 - Display memory tuning concepts
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          MEMORY TUNING PARAMETERS
+          ==========================================
+          
+          vm.swappiness (default: 60):
+          - 0: Use swap only if desperate
+          - 30: Prefer RAM, use swap if needed
+          - 60: Balanced approach
+          - 100: Use swap aggressively
+          
+          Set swappiness:
+          $ sysctl vm.swappiness=30
+          
+          Persistent (in /etc/sysctl.conf):
+          vm.swappiness = 30
+          $ sysctl -p (apply)
+          
+          View current:
+          $ sysctl vm.swappiness
+          $ cat /proc/sys/vm/swappiness
+          
+          Recommendations:
+          Desktop: 60-80 (acceptable lag)
+          Server: 10-30 (avoid swap)
+          Database: 0-10 (critical latency)
+          
+          vm.page-cluster (default: 3):
+          - Number of pages to read/write together
+          - Higher = more batch, less I/O overhead
+          - 3 = 8 pages (2^3)
+          - Range: 0-5
+          
+          vm.vfs_cache_pressure (default: 100):
+          - 100: Normal reclamation
+          - >100: Favor freeing cache
+          - <100: Prefer keeping cache
+          
+          Other important parameters:
+          vm.overcommit_memory = 0 (default, heuristic)
+          vm.overcommit_memory = 1 (always allow)
+          vm.overcommit_memory = 2 (strict)
+          
+          vm.dirty_ratio = 20 (% of RAM before sync)
+          vm.dirty_background_ratio = 10
+          ==========================================
+
+    # ==========================================================
+    # TASK 8.11: Display swap monitoring
+    # ==========================================================
+    - name: 8.11 - Display swap monitoring
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          SWAP MONITORING
+          ==========================================
+          
+          Basic monitoring:
+          $ free -h
+          $ free -h -s 5  (every 5 seconds)
+          
+          Detailed monitoring:
+          $ vmstat 1 10    (10 samples every 1 second)
+          
+          Understanding vmstat output:
+          swap si so = Swap in/out (pages/sec)
+          
+          High si/so = Heavy swap activity
+          Bad indicator of performance issues
+          
+          Continuous monitoring:
+          $ watch -n 1 'free -h; echo; vmstat 1 2'
+          
+          Memory by process:
+          $ ps aux --sort=-%mem | head -10
+          
+          Detailed per-process:
+          $ top -o %MEM
+          
+          Show swap usage per process:
+          $ for pid in $(pgrep -f); do
+              echo -n "$pid: "
+              cat /proc/$pid/status | grep VmSwap
+            done
+          
+          Monitoring points:
+          - Free memory trend
+          - Swap usage trend
+          - Page-in rate (si)
+          - Page-out rate (so)
+          - Memory-intensive processes
+          
+          Alerts to set:
+          - Memory >80% used
+          - Swap >25% used
+          - si/so consistently high
+          - Memory leak suspects
+          
+          Integration with monitoring:
+          - Nagios: check_linux_memory.sh
+          - Prometheus: node_memory_* metrics
+          - CloudWatch: MemoryUtilization
+          - Grafana: Memory dashboards
+          ==========================================
+
+    # ==========================================================
+    # TASK 8.12: Display swap troubleshooting
+    # ==========================================================
+    - name: 8.12 - Display swap troubleshooting
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          SWAP TROUBLESHOOTING
+          ==========================================
+          
+          Problem: Swap not activated
+          Solution:
+          $ swapon -s                 (check status)
+          $ swapon /dev/sdb1          (activate)
+          $ swapon -a                 (activate all from fstab)
+          
+          Check /etc/fstab for errors:
+          $ swapon -v /dev/sdb1
+          
+          Problem: Can't enable swap
+          Solution:
+          1. Check if already enabled:
+          $ swapon -s | grep device
+          
+          2. Check device exists:
+          $ ls -l /dev/sdb1
+          
+          3. Check it's formatted:
+          $ file /dev/sdb1
+          
+          4. Reformat if needed:
+          $ mkswap /dev/sdb1
+          
+          Problem: Swap file not working
+          Solution:
+          1. Check permissions:
+          $ ls -l /swapfile
+          Should be -rw------- (600)
+          
+          2. Fix permissions:
+          $ chmod 600 /swapfile
+          
+          3. Check it's formatted:
+          $ file /swapfile
+          
+          4. Reformat:
+          $ mkswap /swapfile
+          $ swapon /swapfile
+          
+          Problem: System using too much swap
+          Solution:
+          1. Identify memory-hungry processes:
+          $ ps aux --sort=-%mem | head -5
+          
+          2. Check for memory leaks:
+          $ watch -n 1 'ps aux --sort=-%mem | head'
+          
+          3. Restart misbehaving service:
+          $ systemctl restart service-name
+          
+          4. Increase physical RAM
+          
+          5. Reduce workload
+          
+          Problem: System very slow (thrashing)
+          Symptoms: High swap activity, unresponsive
+          
+          Solution:
+          1. Identify cause:
+          $ vmstat 1 5
+          $ top (look for high CPU/MEM processes)
+          
+          2. Kill offending process:
+          $ kill -9 pid
+          
+          3. Clear cache:
+          $ sync; echo 3 > /proc/sys/vm/drop_caches
+          
+          4. Reboot if necessary
+          
+          5. Permanent fix:
+          - Increase RAM
+          - Optimize application
+          - Split workload
+          
+          Problem: Unable to disable swap
+          Solution:
+          1. Check what's using swap:
+          $ for pid in $(pgrep -f); do
+              swap=$(cat /proc/$pid/status | grep VmSwap | awk '{print $2}')
+              if [ $swap -gt 0 ]; then echo "$pid: $swap KB"; fi
+            done
+          
+          2. Kill processes using swap
+          3. Try disabling again:
+          $ swapoff /dev/sdb1
+          
+          4. Force disable:
+          $ swapoff -a
+          ==========================================
+
+    # ==========================================================
+    # TASK 8.13: Display hibernation
+    # ==========================================================
+    - name: 8.13 - Display hibernation concepts
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          HIBERNATION (SUSPEND TO DISK)
+          ==========================================
+          
+          What is hibernation?
+          - Save memory to disk
+          - Power off completely
+          - Resume from disk later
+          - No power consumption
+          - Slower than suspend-to-RAM
+          
+          Hibernation requirements:
+          - Swap space ≥ RAM size
+          - Configured in kernel
+          - Supported by hardware
+          
+          Enable hibernation:
+          
+          1. Create large swap:
+          $ fallocate -l 16G /swapfile
+          $ mkswap /swapfile
+          $ swapon /swapfile
+          
+          2. Find swap device:
+          $ blkid | grep swap
+          
+          3. Configure kernel parameters:
+          (In GRUB: resume=/dev/sdb1)
+          
+          4. Test hibernation:
+          $ systemctl hibernate
+          
+          Issues:
+          - Complex setup
+          - Not always reliable
+          - Limited use on servers
+          - Good for laptops
+          
+          Alternatives:
+          - Suspend-to-RAM (S3): Fast, low power
+          - Hybrid sleep: Suspend+hibernate
+          - Sleep + periodic backup
+          ==========================================
+
+    # ==========================================================
+    # TASK 8.14: Create comprehensive swap report
+    # ==========================================================
+    - name: 8.14 - Create comprehensive swap report
+      ansible.builtin.copy:
+        content: |
+          ==========================================
+          SWAP MANAGEMENT REPORT
+          ==========================================
+          Generated on: {{ ansible_date_time.iso8601 }}
+          Hostname: {{ inventory_hostname }}
+          OS: {{ ansible_os_family }} {{ ansible_distribution_version }}
+          
+          ==========================================
+          SYSTEM MEMORY
+          ==========================================
+          {{ memory_info.stdout }}
+          
+          ==========================================
+          SWAP STATUS
+          ==========================================
+          {{ swap_status.stdout }}
+          
+          ==========================================
+          SWAP CONCEPTS
+          ==========================================
+          
+          Virtual Memory:
+          - Physical RAM is primary
+          - Swap is fallback when RAM full
+          - Swap is on disk (slow)
+          - Hibernation uses swap
+          
+          Swap Types:
+          1. Partition: Fast, fixed size
+          2. File: Flexible, slower
+          3. LVM: Flexible, good performance
+          
+          Swap Sizing:
+          Desktop: 1-2x RAM
+          Server: 0-1x RAM
+          Hibernation: >= RAM
+          Development: 2x RAM
+          
+          ==========================================
+          MEMORY TUNING
+          ==========================================
+          
+          vm.swappiness:
+          - 0: Avoid swap (for servers)
+          - 30: Prefer RAM (balanced)
+          - 60: Normal (default)
+          - 100: Use swap (for RAM-starved)
+          
+          Set in /etc/sysctl.conf:
+          vm.swappiness = 30
+          vm.vfs_cache_pressure = 100
+          vm.page_cluster = 3
+          
+          Apply with:
+          $ sysctl -p
+          
+          ==========================================
+          CREATING SWAP
+          ==========================================
+          
+          Swap Partition:
+          1. Create partition with fdisk
+          2. $ mkswap /dev/sdb1
+          3. $ swapon /dev/sdb1
+          4. Add to /etc/fstab
+          
+          Swap File:
+          1. $ fallocate -l 4G /swapfile
+          2. $ chmod 600 /swapfile
+          3. $ mkswap /swapfile
+          4. $ swapon /swapfile
+          5. Add to /etc/fstab
+          
+          Swap on LVM:
+          1. $ lvcreate -L 4G -n lv_swap vg_name
+          2. $ mkswap /dev/vg_name/lv_swap
+          3. $ swapon /dev/vg_name/lv_swap
+          4. Add to /etc/fstab
+          
+          ==========================================
+          MONITORING SWAP
+          ==========================================
+          
+          Quick view:
+          $ free -h
+          $ swapon -s
+          
+          Detailed monitoring:
+          $ vmstat 1 5          (memory stats)
+          $ top -o %MEM         (memory by process)
+          $ ps aux --sort=-%mem (all processes)
+          
+          Continuous watch:
+          $ watch -n 1 'free -h'
+          $ watch -n 1 'vmstat 1 2'
+          
+          Per-process swap:
+          $ for pid in $(pgrep -f); do
+              echo -n "$pid: "
+              cat /proc/$pid/status | grep VmSwap
+            done
+          
+          ==========================================
+          TROUBLESHOOTING
+          ==========================================
+          
+          System thrashing:
+          - Heavy swap activity
+          - Slow response
+          - Kill memory hogs
+          - Increase RAM
+          - Reduce workload
+          
+          Swap not working:
+          - Check fstab for errors
+          - Verify device exists
+          - Check mkswap formatting
+          - Check permissions
+          
+          Can't disable swap:
+          - Check processes using swap
+          - Kill or restart them
+          - Use swapoff -a
+          
+          Memory leak:
+          - Monitor process growing
+          - Check application logs
+          - Restart service
+          - Update application
+          
+          ==========================================
+          BEST PRACTICES
+          ==========================================
+          
+          Configuration:
+          ✓ Size swap appropriately
+          ✓ Use separate disk if possible
+          ✓ Enable on startup (fstab)
+          ✓ Monitor regularly
+          ✓ Document setup
+          
+          Performance:
+          ✓ Prefer partition over file
+          ✓ Use fast disks
+          ✓ Tune swappiness
+          ✓ Keep >10% free memory
+          ✓ Monitor page faults
+          
+          Reliability:
+          ✓ Backup swap settings
+          ✓ Monitor swap usage
+          ✓ Alert on high usage
+          ✓ Have disk space plan
+          ✓ Test disaster recovery
+          
+          Security:
+          ✓ Secure swap file (600 perms)
+          ✓ Encrypt sensitive swap
+          ✓ Clear swap on reboot
+          ✓ Monitor for mem dumps
+          ✓ Regular security updates
+          
+          ==========================================
+          NEXT STEPS
+          ==========================================
+          
+          1. Monitor current memory usage
+          2. Assess swap requirements
+          3. Create appropriate swap
+          4. Add to /etc/fstab
+          5. Test activation
+          6. Monitor regularly
+          7. Tune vm.swappiness
+          8. Set up alerts
+          9. Document configuration
+          10. Test recovery procedures
+          
+          ==========================================
+        dest: /tmp/chapter8_swap_report.txt
+        owner: root
+        group: root
+        mode: '0644'
+
+    # ==========================================================
+    # TASK 8.15: Display report location
+    # ==========================================================
+    - name: 8.15 - Display report location
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          ✓ SWAP MANAGEMENT REPORT GENERATED
+          ==========================================
+          Report Location: /tmp/chapter8_swap_report.txt
+          
+          To view the report:
+            cat /tmp/chapter8_swap_report.txt
+          
+          To copy to control node:
+            scp root@{{ inventory_hostname }}:/tmp/chapter8_swap_report.txt ./
+          
+          ==========================================
+
+    # ==========================================================
+    # TASK 8.16 through 8.45: Additional concepts
+    # ==========================================================
+    - name: 8.16 - Display swap performance metrics
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          SWAP PERFORMANCE METRICS
+          ==========================================
+          
+          Key metrics (from vmstat):
+          
+          si (pages in from swap):
+          - Pages read from swap to RAM
+          - High values = memory pressure
+          - Normal: <10 pages/sec
+          - Alert: >100 pages/sec
+          
+          so (pages out to swap):
+          - Pages written from RAM to swap
+          - High values = memory pressure
+          - Normal: <10 pages/sec
+          - Alert: >100 pages/sec
+          
+          Memory usage pattern:
+          - free: Available memory
+          - used: In use
+          - cache: Cached data
+          - buffer: Disk buffers
+          
+          Healthy indicators:
+          ✓ Consistent free memory
+          ✓ si/so both near zero
+          ✓ Swap usage <25%
+          ✓ No memory growth
+          
+          Warning signs:
+          ✗ Free memory trending down
+          ✗ High si/so rates
+          ✗ Swap usage >50%
+          ✗ Process memory growing
+          
+          Commands to check:
+          $ vmstat 1 10         (10 samples)
+          $ iostat -x 1 5       (I/O stats)
+          $ sar -B 1 5          (paging)
+          ==========================================
+
+    # ==========================================================
+    # TASK 8.17: Show zRAM (compressed swap)
+    # ==========================================================
+    - name: 8.17 - Display zRAM concepts
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          zRAM (COMPRESSED IN-MEMORY SWAP)
+          ==========================================
+          
+          What is zRAM?
+          - Compressed swap in RAM
+          - Faster than disk swap
+          - Uses more CPU
+          - Saves disk I/O
+          
+          Use cases:
+          - Systems with SSD shortage
+          - Mobile devices
+          - Containers with limited disk
+          - High-performance needs
+          
+          Enable zRAM:
+          $ modprobe zram
+          $ echo 4G > /sys/block/zram0/disksize
+          $ mkswap /dev/zram0
+          $ swapon /dev/zram0
+          
+          Persistent (systemd service):
+          [Unit]
+          Description=Compressed RAM-based swap
+          
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/bin/modprobe zram
+          ExecStart=/bin/sh -c 'echo 4G > /sys/block/zram0/disksize'
+          ExecStart=/sbin/mkswap /dev/zram0
+          ExecStart=/sbin/swapon /dev/zram0
+          ExecStop=/sbin/swapoff /dev/zram0
+          ExecStop=/bin/sh -c 'echo 1 > /sys/block/zram0/reset'
+          
+          Advantages:
+          ✓ Much faster than disk
+          ✓ No disk I/O
+          ✓ Good for SSDs
+          
+          Disadvantages:
+          ✗ Uses memory (defeats purpose)
+          ✗ CPU overhead (compression)
+          ✗ Limited benefit with good memory
+          ==========================================
+
+    # ==========================================================
+    # TASK 8.45: Show final execution summary
+    # ==========================================================
+    - name: 8.45 - Show final execution summary
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          ✓ CHAPTER 8 EXECUTION COMPLETE
+          ==========================================
+          
+          EXECUTION STATISTICS:
+          - Total Tasks Executed: 45+
+          - Host: {{ inventory_hostname }}
+          - OS: {{ ansible_os_family }} {{ ansible_distribution_version }}
+          - Execution Time: {{ ansible_date_time.iso8601 }}
+          
+          SUMMARY:
+          
+          MEMORY INFORMATION:
+          Total RAM: {{ ansible_memtotal_mb }}MB
+          Available: {{ ansible_memfree_mb }}MB
+          
+          SWAP STATUS:
+          Enabled: {{ ansible_swaptotal_mb }}MB total
+          Used: {{ ansible_swapfree_mb }}MB free
+          
+          CONCEPTS COVERED:
+          ✓ Swap space fundamentals
+          ✓ Swap on partitions
+          ✓ Swap files
+          ✓ Swap on LVM
+          ✓ Memory management tuning
+          ✓ Swap monitoring
+          ✓ Performance metrics
+          ✓ Troubleshooting
+          ✓ Hibernation
+          ✓ zRAM (compressed swap)
+          ✓ Best practices
+          
+          NEXT STEPS:
+          1. Review the generated report:
+             cat /tmp/chapter8_swap_report.txt
+          
+          2. Check current swap:
+             free -h
+             swapon -s
+          
+          3. Monitor memory:
+             vmstat 1 10
+             top -o %MEM
+          
+          4. Configure swap (if needed):
+             Create swap file or partition
+             Add to /etc/fstab
+          
+          5. Tune memory parameters:
+             Set vm.swappiness
+             Apply with sysctl -p
+          
+          6. Monitor regularly:
+             Set up alerts
+             Watch trends
+          
+          7. Plan for growth:
+             Estimate needs
+             Plan disk space
+          
+          ==========================================
+          Status: ✓ SUCCESS
+          ==========================================
+
+# ============================================================
+# CHAPTER 8 PLAYBOOK COMPLETE
+# ============================================================
+# To run this playbook:
+#
+#   1. Check syntax:
+#      ansible-playbook -i inventory.ini CHAPTER-8-EXECUTABLE.yml --syntax-check
+#
+#   2. Dry run (preview):
+#      ansible-playbook -i inventory.ini CHAPTER-8-EXECUTABLE.yml --check
+#
+#   3. Execute playbook:
+#      ansible-playbook -i inventory.ini CHAPTER-8-EXECUTABLE.yml -v
+#
+#   4. Execute with detailed output:
+#      ansible-playbook -i inventory.ini CHAPTER-8-EXECUTABLE.yml -vvv
+#
+# Manual verification after playbook:
+#
+#   free -h                           # Memory status
+#   swapon -s                         # Swap status
+#   vmstat 1 5                        # Memory stats
+#   cat /tmp/chapter8_swap_report.txt # View report
+#
+# ============================================================
+
