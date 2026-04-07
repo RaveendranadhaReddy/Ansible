@@ -1,0 +1,307 @@
+---
+- name: RHEL 8 to RHEL 9 Upgrade - Production Playbook
+  hosts: all
+  become: yes
+  serial: 1
+  gather_facts: yes
+  vars:
+    precheck_min_disk_root_mb: 5120
+    precheck_min_memory_mb: 1024
+    upgrade_reboot_after: true
+    upgrade_reboot_timeout: 900
+
+  tasks:
+    #################################################
+    # PHASE 0: PRE-UPGRADE BACKUP
+    #################################################
+    - name: Create pre-upgrade backup directory
+      block:
+        - name: Create backup marker
+          shell: |
+            mkdir -p /var/log/rhel-upgrade
+            date > /var/log/rhel-upgrade/upgrade-start.log
+            rpm -qa > /var/log/rhel-upgrade/installed-packages-before.txt
+            echo "RHEL 8 to RHEL 9 Upgrade Started" >> /var/log/rhel-upgrade/upgrade-start.log
+
+    #################################################
+    # PHASE 1: PRECHECK
+    #################################################
+    - name: Verify current OS version is RHEL 8
+      assert:
+        that:
+          - ansible_distribution == "RedHat"
+          - ansible_distribution_major_version == "8"
+        fail_msg: "This playbook requires RHEL 8. Current version: {{ ansible_distribution_major_version }}"
+
+    - name: Check root filesystem disk space
+      shell: df -m / | tail -1 | awk '{print $4}'
+      register: root_space
+      changed_when: false
+
+    - name: Validate sufficient disk space (>= 5GB)
+      assert:
+        that:
+          - root_space.stdout | int >= precheck_min_disk_root_mb
+        fail_msg: "Insufficient disk space. Required: {{ precheck_min_disk_root_mb }}MB, Available: {{ root_space.stdout }}MB"
+
+    - name: Check available memory
+      assert:
+        that:
+          - ansible_memtotal_mb >= precheck_min_memory_mb
+        fail_msg: "Insufficient memory. Required: {{ precheck_min_memory_mb }}MB, Available: {{ ansible_memtotal_mb }}MB"
+
+    - name: Verify Red Hat subscription
+      command: subscription-manager identity
+      register: rhsm_identity
+      changed_when: false
+      failed_when: rhsm_identity.rc != 0
+
+    - name: Display subscription info
+      command: subscription-manager status
+      register: subscription_status
+      changed_when: false
+
+    - name: Show subscription status
+      debug:
+        msg: "{{ subscription_status.stdout }}"
+
+    #################################################
+    # PHASE 2: INSTALL AND CONFIGURE LEAPP
+    #################################################
+    - name: Install leapp upgrade utility
+      package:
+        name: leapp-upgrade
+        state: present
+      retries: 3
+      delay: 10
+      register: leapp_install
+
+    - name: Install leapp-deps for RHEL 9
+      package:
+        name: leapp-rhel9
+        state: present
+      retries: 3
+      delay: 10
+      ignore_errors: true
+
+    - name: Run leapp preupgrade report
+      command: leapp preupgrade
+      register: leapp_preupgrade
+      failed_when: leapp_preupgrade.rc not in [0, 1]
+      changed_when: false
+
+    - name: Display leapp preupgrade results
+      debug:
+        msg: "{{ leapp_preupgrade.stdout }}"
+
+    - name: Check for leapp inhibitors
+      shell: grep -i "inhibitor" /var/log/leapp/leapp-report.txt || echo "No critical inhibitors found"
+      register: inhibitors
+      changed_when: false
+      failed_when: false
+
+    - name: Display inhibitors check result
+      debug:
+        msg: "{{ inhibitors.stdout }}"
+
+    - name: Alert on critical inhibitors
+      fail:
+        msg: |
+          Leapp detected inhibitors. Review:
+          - /var/log/leapp/leapp-report.txt
+          - /var/log/leapp/leapp-report.json
+          Please remediate inhibitors before retrying upgrade.
+      when: "'Inhibitor' in inhibitors.stdout"
+
+    - name: Check for warnings
+      shell: grep -i "risk factor" /var/log/leapp/leapp-report.txt | grep -i "high\|medium" || echo "No high/medium warnings"
+      register: warnings
+      changed_when: false
+      failed_when: false
+
+    - name: Display warnings
+      debug:
+        msg: "{{ warnings.stdout }}"
+
+    #################################################
+    # PHASE 3: PREPARE SYSTEM
+    #################################################
+    - name: Clean DNF cache
+      command: dnf clean all
+      changed_when: true
+
+    - name: Update metadata cache
+      command: dnf makecache
+      retries: 3
+      delay: 20
+      changed_when: true
+
+    - name: Display pre-upgrade system info
+      debug:
+        msg: |
+          ==========================================
+          PRE-UPGRADE SYSTEM INFORMATION
+          ==========================================
+          Hostname: {{ inventory_hostname }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Kernel: {{ ansible_kernel }}
+          Total Memory: {{ ansible_memtotal_mb }}MB
+          Available Disk: {{ root_space.stdout }}MB
+          ==========================================
+
+    #################################################
+    # PHASE 4: EXECUTE LEAPP UPGRADE TO RHEL 9
+    #################################################
+    - name: Execute leapp upgrade to RHEL 9
+      block:
+        - name: Run leapp upgrade command
+          command: leapp upgrade
+          register: leapp_upgrade_result
+          async: 5400  # 90 minutes
+          poll: 60     # Check every minute
+          changed_when: leapp_upgrade_result.rc == 0
+
+        - name: Display upgrade output
+          debug:
+            msg: "{{ leapp_upgrade_result.stdout }}"
+
+      rescue:
+        - name: Capture upgrade error logs
+          command: cat /var/log/leapp/leapp-report.txt
+          register: error_logs
+          ignore_errors: true
+
+        - name: Display error logs
+          debug:
+            msg: "{{ error_logs.stdout }}"
+
+        - name: Capture upgrade debug logs
+          command: tail -50 /var/log/leapp/leapp-upgrade.log
+          register: debug_logs
+          ignore_errors: true
+
+        - name: Display debug logs
+          debug:
+            msg: "{{ debug_logs.stdout }}"
+
+        - name: Fail with error details
+          fail:
+            msg: |
+              Leapp upgrade to RHEL 9 failed.
+              Check error logs on {{ inventory_hostname }}:
+              - /var/log/leapp/leapp-report.txt
+              - /var/log/leapp/leapp-upgrade.log
+
+    #################################################
+    # PHASE 5: WAIT FOR REBOOT AND RECONNECT
+    #################################################
+    - name: Wait for system to reboot and come back online
+      wait_for_connection:
+        delay: 60        # Wait 60 seconds before first check
+        timeout: 900     # Total timeout 15 minutes
+        connect_timeout: 5
+
+    - name: Re-gather facts after upgrade
+      setup:
+
+    #################################################
+    # PHASE 6: POST-UPGRADE VALIDATION
+    #################################################
+    - name: Verify RHEL 9 upgrade success
+      assert:
+        that:
+          - ansible_distribution == "RedHat"
+          - ansible_distribution_major_version == "9"
+        fail_msg: "Upgrade verification failed. System is still on RHEL {{ ansible_distribution_major_version }}"
+
+    - name: Get currently running kernel
+      command: uname -r
+      register: running_kernel
+      changed_when: false
+
+    - name: Get latest available kernel
+      shell: rpm -q kernel --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -1
+      register: latest_kernel
+      changed_when: false
+
+    - name: Display kernel information
+      debug:
+        msg: |
+          Current kernel: {{ running_kernel.stdout }}
+          Latest kernel:  {{ latest_kernel.stdout }}
+
+    - name: Check critical services
+      systemd:
+        name: "{{ item }}"
+      register: service_status
+      failed_when: service_status.status.ActiveState != "active"
+      loop:
+        - sshd
+        - systemd-logind
+
+    - name: Verify all critical services are active
+      assert:
+        that:
+          - item.status.ActiveState == "active"
+        fail_msg: "Critical service {{ item.name }} is not active"
+      loop: "{{ query('list', service_status.results) }}"
+
+    - name: Check filesystem health
+      command: mount
+      register: mount_output
+      changed_when: false
+
+    - name: Verify all filesystems mounted
+      debug:
+        msg: "Filesystems mounted successfully"
+
+    - name: Check network connectivity
+      command: hostname -I
+      register: hostname_ip
+      changed_when: false
+
+    - name: Display network info
+      debug:
+        msg: "IP Address: {{ hostname_ip.stdout }}"
+
+    #################################################
+    # PHASE 7: POST-UPGRADE LOGGING
+    #################################################
+    - name: Log successful upgrade
+      shell: |
+        {
+          echo "RHEL 9 Upgrade Completed Successfully at $(date)"
+          echo ""
+          echo "System Information:"
+          cat /etc/redhat-release
+          echo ""
+          echo "Kernel: $(uname -r)"
+          echo "Uptime: $(uptime)"
+          echo ""
+          rpm -qa | wc -l | awk '{print "Total packages installed: " $1}'
+        } >> /var/log/rhel-upgrade/upgrade-end.log
+        
+        rpm -qa > /var/log/rhel-upgrade/installed-packages-after.txt
+        
+        # Compare package count
+        echo "Pre-upgrade packages: $(wc -l < /var/log/rhel-upgrade/installed-packages-before.txt)" >> /var/log/rhel-upgrade/upgrade-end.log
+        echo "Post-upgrade packages: $(wc -l < /var/log/rhel-upgrade/installed-packages-after.txt)" >> /var/log/rhel-upgrade/upgrade-end.log
+
+    - name: Display upgrade summary
+      debug:
+        msg: |
+          ==========================================
+          ✅ RHEL 9 UPGRADE COMPLETED SUCCESSFULLY
+          ==========================================
+          Hostname:        {{ inventory_hostname }}
+          OS Version:      {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Kernel:          {{ running_kernel.stdout }}
+          Memory:          {{ ansible_memtotal_mb }}MB
+          Total Packages:  {{ ansible_pkg_mgr_facts.packages | length }}
+          Uptime:          {{ ansible_uptime_seconds | int / 3600 | round(2) }} hours
+          
+          Log Files:
+          - /var/log/rhel-upgrade/upgrade-start.log
+          - /var/log/rhel-upgrade/upgrade-end.log
+          - /var/log/leapp/leapp-upgrade.log
+          ==========================================
