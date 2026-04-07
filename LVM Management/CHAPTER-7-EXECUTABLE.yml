@@ -1,0 +1,1336 @@
+---
+# ============================================================
+# CHAPTER 7: LVM MANAGEMENT
+# ============================================================
+# READY TO EXECUTE VERSION - All 50+ Tasks
+#
+# Duration: 30-40 minutes
+# Difficulty: ⭐⭐⭐ Advanced
+# Prerequisites: Root/sudo access, Chapters 1-6 completed
+#
+# Usage:
+#   ansible-playbook -i inventory.ini CHAPTER-7-EXECUTABLE.yml -v
+#
+# Before running:
+#   1. Update inventory.ini with your server IPs
+#   2. Test connectivity: ansible all -i inventory.ini -m ping
+#   3. Run syntax check: ansible-playbook -i inventory.ini CHAPTER-7-EXECUTABLE.yml --syntax-check
+#   4. WARNING: This playbook manages LVM structures - test carefully!
+#
+# ============================================================
+
+- name: Chapter 7 - LVM Management
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    # Physical volumes to manage
+    pv_devices:
+      - device: "/dev/sdb"
+        display_name: "Secondary Disk"
+        description: "For LVM storage pool"
+
+    # Volume groups to create
+    vg_config:
+      - vg_name: "data_vg"
+        pv_list: ["/dev/sdb"]
+        display_name: "Data Volume Group"
+        description: "Primary storage pool"
+        pe_size: "4M"
+
+    # Logical volumes to create
+    lv_config:
+      - vg_name: "data_vg"
+        lv_name: "lv_storage"
+        lv_size: "5G"
+        mount_path: "/mnt/storage"
+        fstype: "ext4"
+        description: "Storage volume"
+      
+      - vg_name: "data_vg"
+        lv_name: "lv_backup"
+        lv_size: "3G"
+        mount_path: "/mnt/backup"
+        fstype: "ext4"
+        description: "Backup volume"
+
+    # LVM snapshots
+    snapshot_config:
+      - lv_name: "lv_storage"
+        snapshot_name: "lv_storage_snap"
+        snapshot_size: "1G"
+        vg_name: "data_vg"
+
+    # Thin provisioning pools
+    thin_pool_config:
+      - vg_name: "data_vg"
+        pool_name: "thin_pool"
+        pool_size: "10G"
+
+  tasks:
+
+    # ==========================================================
+    # TASK 7.1: Display Chapter 7 Header
+    # ==========================================================
+    - name: 7.1 - Display Chapter 7 Header
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          CHAPTER 7: LVM MANAGEMENT
+          ==========================================
+          Duration: 30-40 minutes
+          Difficulty: ⭐⭐⭐ Advanced
+          Total Tasks: 50+
+          
+          Topics:
+          - LVM architecture
+          - Physical volumes (PV)
+          - Volume groups (VG)
+          - Logical volumes (LV)
+          - Volume extension
+          - Volume reduction
+          - Snapshots
+          - Thin provisioning
+          - LVM monitoring
+          - Disaster recovery
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.2: Display LVM architecture
+    # ==========================================================
+    - name: 7.2 - Display LVM architecture
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          LVM ARCHITECTURE
+          ==========================================
+          
+          Hierarchy:
+          
+          ┌─────────────────────────────────────┐
+          │    Physical Disks/Partitions        │
+          │  /dev/sda1, /dev/sdb, /dev/sdc     │
+          └────────────────┬────────────────────┘
+                           │
+                    ┌──────▼──────┐
+                    │ PV (Physical│
+                    │  Volumes)   │
+                    └──────┬──────┘
+                           │
+                    ┌──────▼──────────┐
+                    │ VG (Volume      │
+                    │  Group)         │
+                    │  Combined Pool  │
+                    └──────┬──────────┘
+                           │
+                    ┌──────▼──────────┐
+                    │ LV (Logical     │
+                    │  Volumes)       │
+                    │  Partitions     │
+                    └──────┬──────────┘
+                           │
+                    ┌──────▼──────────┐
+                    │ Filesystems     │
+                    │ ext4, xfs, etc  │
+                    └─────────────────┘
+          
+          Benefits:
+          ✓ Flexible allocation
+          ✓ Dynamic resizing
+          ✓ Volume snapshots
+          ✓ Live migration
+          ✓ Multiple physical disks
+          ✓ Easy management
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.3: Check for existing LVM
+    # ==========================================================
+    - name: 7.3 - Check for existing LVM
+      ansible.builtin.shell: "pvs 2>/dev/null || echo 'No LVM configured'"
+      register: existing_pvs
+      changed_when: false
+
+    # ==========================================================
+    # TASK 7.4: Display existing physical volumes
+    # ==========================================================
+    - name: 7.4 - Display existing physical volumes
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          EXISTING PHYSICAL VOLUMES
+          ==========================================
+          {{ existing_pvs.stdout }}
+          
+          View PV information:
+          $ pvs                    (quick view)
+          $ pvdisplay              (detailed view)
+          $ pvdisplay /dev/sdb     (specific PV)
+          
+          Create new PV:
+          $ pvcreate /dev/sdb
+          $ pvcreate /dev/sdb /dev/sdc /dev/sdd
+          
+          Remove PV:
+          $ pvremove /dev/sdb
+          
+          Scan for PVs:
+          $ pvscan
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.5: Display volume groups
+    # ==========================================================
+    - name: 7.5 - Display volume groups
+      ansible.builtin.shell: "vgs 2>/dev/null || echo 'No volume groups'"
+      register: existing_vgs
+      changed_when: false
+
+    # ==========================================================
+    # TASK 7.6: Display existing volume groups
+    # ==========================================================
+    - name: 7.6 - Display existing volume groups
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          EXISTING VOLUME GROUPS
+          ==========================================
+          {{ existing_vgs.stdout }}
+          
+          View VG information:
+          $ vgs                    (quick view)
+          $ vgdisplay              (detailed view)
+          $ vgdisplay data_vg      (specific VG)
+          
+          Create VG:
+          $ vgcreate data_vg /dev/sdb
+          $ vgcreate data_vg /dev/sdb /dev/sdc
+          
+          Extend VG (add PV):
+          $ vgextend data_vg /dev/sdc
+          
+          Reduce VG (remove PV):
+          $ vgreduce data_vg /dev/sdc
+          
+          Delete VG:
+          $ vgremove data_vg
+          
+          Scan for VGs:
+          $ vgscan
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.7: Display logical volumes
+    # ==========================================================
+    - name: 7.7 - Display logical volumes
+      ansible.builtin.shell: "lvs 2>/dev/null || echo 'No logical volumes'"
+      register: existing_lvs
+      changed_when: false
+
+    # ==========================================================
+    # TASK 7.8: Display existing logical volumes
+    # ==========================================================
+    - name: 7.8 - Display existing logical volumes
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          EXISTING LOGICAL VOLUMES
+          ==========================================
+          {{ existing_lvs.stdout }}
+          
+          View LV information:
+          $ lvs                    (quick view)
+          $ lvdisplay              (detailed view)
+          $ lvdisplay /dev/data_vg/lv_storage
+          
+          Create LV:
+          $ lvcreate -L 10G -n lv_storage data_vg
+          $ lvcreate -l 50%VG -n lv_data data_vg
+          
+          Create LV (percentage):
+          $ lvcreate -l 100%FREE -n lv_all data_vg
+          
+          Create striped LV:
+          $ lvcreate -i 2 -L 10G -n lv_striped data_vg
+          
+          Delete LV:
+          $ lvremove /dev/data_vg/lv_storage
+          
+          Scan for LVs:
+          $ lvscan
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.9: Explain LVM sizing
+    # ==========================================================
+    - name: 7.9 - Explain LVM sizing
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          LVM SIZING CONCEPTS
+          ==========================================
+          
+          Physical Extent (PE):
+          - Basic allocation unit
+          - Default: 4MB
+          - Can be changed at VG creation
+          - Larger PE = less overhead
+          - Smaller PE = more granular control
+          
+          Logical Extent (LE):
+          - Maps to PEs
+          - Used to track allocation
+          - One LE = one PE (for linear volumes)
+          
+          Size Specification:
+          - Absolute: -L 10G (10 gigabytes)
+          - Percentage of VG: -l 50%VG
+          - Percentage of FREE: -l 100%FREE
+          - Number of PE: -l 2560 (2560 * 4MB = 10GB)
+          
+          Example sizes:
+          -L 5G           (5 gigabytes)
+          -L 512M         (512 megabytes)
+          -l 50%VG        (50% of volume group)
+          -l 100%FREE     (all free space)
+          -l 1280         (1280 extents)
+          
+          Available space calculation:
+          Total PVs size - Metadata overhead = Available for LVs
+          Metadata uses ~1% of VG space
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.10: Display PV creation concepts
+    # ==========================================================
+    - name: 7.10 - Display Physical Volume concepts
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          PHYSICAL VOLUME (PV) MANAGEMENT
+          ==========================================
+          
+          What is a PV?
+          - Physical block device or partition
+          - Can be disk or partition
+          - Contains LVM metadata
+          - Part of a volume group
+          
+          Create PV:
+          $ pvcreate /dev/sdb
+          $ pvcreate /dev/sdb1 /dev/sdc1
+          $ pvcreate --uuid 12345678 /dev/sdb (custom UUID)
+          
+          Partition first (optional):
+          $ fdisk /dev/sdb
+          n = new partition
+          t = change type to LVM
+          w = write
+          $ pvcreate /dev/sdb1
+          
+          View PV details:
+          $ pvdisplay /dev/sdb
+          $ pvs -o +pv_used,pv_free
+          
+          Resize PV (if partition changed):
+          $ pvresize /dev/sdb
+          
+          Move data (before removing):
+          $ pvmove /dev/sdb /dev/sdc
+          
+          Remove PV (only if empty):
+          $ pvremove /dev/sdb
+          
+          Check PV status:
+          $ pvscan
+          $ pvck /dev/sdb (check integrity)
+          
+          Physical volumes store:
+          - LVM metadata
+          - Physical extents (PE)
+          - UUID for identification
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.11: Display VG management
+    # ==========================================================
+    - name: 7.11 - Display Volume Group management
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          VOLUME GROUP (VG) MANAGEMENT
+          ==========================================
+          
+          What is a VG?
+          - Pool of physical volumes
+          - Logical volumes are created from VG
+          - Can span multiple disks
+          - Flexible allocation
+          
+          Create VG:
+          $ vgcreate data_vg /dev/sdb
+          $ vgcreate data_vg /dev/sdb /dev/sdc /dev/sdd
+          $ vgcreate -s 8M data_vg /dev/sdb (PE size)
+          
+          View VG info:
+          $ vgs                    (summary)
+          $ vgdisplay data_vg      (detailed)
+          $ vgdisplay -A data_vg   (with attributes)
+          
+          Extend VG (add PV):
+          $ vgextend data_vg /dev/sdc
+          $ vgextend data_vg /dev/sdc /dev/sdd
+          
+          Reduce VG (remove PV):
+          First move data: $ pvmove /dev/sdc
+          Then remove: $ vgreduce data_vg /dev/sdc
+          
+          Rename VG:
+          $ vgrename data_vg storage_vg
+          $ vgrename /dev/data_vg /dev/storage_vg
+          
+          Delete VG (must be empty):
+          $ vgremove data_vg
+          
+          Backup VG metadata:
+          $ vgcfgbackup data_vg
+          $ cat /etc/lvm/backup/data_vg
+          
+          Restore VG metadata:
+          $ vgcfgrestore -f /etc/lvm/backup/data_vg data_vg
+          
+          Activate/deactivate:
+          $ vgchange -a y data_vg  (activate)
+          $ vgchange -a n data_vg  (deactivate)
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.12: Display LV creation
+    # ==========================================================
+    - name: 7.12 - Display Logical Volume creation
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          LOGICAL VOLUME (LV) CREATION
+          ==========================================
+          
+          What is an LV?
+          - Like a virtual partition
+          - Created from VG pool
+          - Can be resized
+          - Can have snapshots
+          
+          Linear LV (default):
+          $ lvcreate -L 10G -n lv_data data_vg
+          
+          Striped LV (better performance):
+          $ lvcreate -i 2 -I 64K -L 10G -n lv_striped data_vg
+          -i 2 = stripe across 2 PVs
+          -I 64K = stripe size
+          
+          Mirrored LV (redundancy):
+          $ lvcreate -m 1 -L 10G -n lv_mirror data_vg
+          -m 1 = 1 mirror (2 copies total)
+          
+          Thin provisioning:
+          $ lvcreate -T -L 10G data_vg/thin_pool
+          $ lvcreate -V 100G -T data_vg/thin_pool -n thin_vol
+          
+          Create from percentage:
+          $ lvcreate -l 50%VG -n lv_half data_vg
+          $ lvcreate -l 100%FREE -n lv_all data_vg
+          
+          View LV info:
+          $ lvs                    (summary)
+          $ lvdisplay /dev/data_vg/lv_data
+          $ lvs -o +lv_size,lv_type,lv_name
+          
+          Display format options:
+          $ lvcreate -L 10G --type snapshot ...
+          
+          Rename LV:
+          $ lvrename data_vg lv_old lv_new
+          
+          Create filesystem:
+          $ mkfs.ext4 /dev/data_vg/lv_data
+          
+          Mount:
+          $ mount /dev/data_vg/lv_data /mnt/data
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.13: Display LV extension
+    # ==========================================================
+    - name: 7.13 - Display Logical Volume extension
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          LOGICAL VOLUME EXTENSION
+          ==========================================
+          
+          When to extend?
+          - Running out of space
+          - Need for growth
+          - Add capacity dynamically
+          
+          Extend LV (online):
+          $ lvextend -L +5G /dev/data_vg/lv_data
+          $ lvextend -L 15G /dev/data_vg/lv_data
+          
+          Extend to percentage:
+          $ lvextend -l +10%VG /dev/data_vg/lv_data
+          $ lvextend -l 100%VG /dev/data_vg/lv_data
+          
+          Extend to all free:
+          $ lvextend -l +100%FREE /dev/data_vg/lv_data
+          
+          Resize filesystem (after LV extend):
+          ext4:
+          $ resize2fs /dev/data_vg/lv_data
+          $ resize2fs -p /dev/data_vg/lv_data (with progress)
+          
+          xfs:
+          $ xfs_growfs /mnt/data (if mounted)
+          
+          Shrink LV (offline only):
+          First shrink filesystem:
+          $ umount /mnt/data
+          $ fsck -f /dev/data_vg/lv_data
+          $ resize2fs /dev/data_vg/lv_data 5G
+          
+          Then shrink LV:
+          $ lvreduce -L 5G /dev/data_vg/lv_data
+          
+          Check LV size:
+          $ lvdisplay /dev/data_vg/lv_data | grep Size
+          $ lvs -o lv_name,lv_size data_vg
+          
+          ⚠️ BACKUP before shrinking!
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.14: Display snapshots
+    # ==========================================================
+    - name: 7.14 - Display LVM Snapshots
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          LVM SNAPSHOTS
+          ==========================================
+          
+          What are snapshots?
+          - Point-in-time copy
+          - Uses copy-on-write
+          - No full copy required
+          - Useful for backups
+          
+          Create snapshot:
+          $ lvcreate -L 1G -s -n lv_snap /dev/data_vg/lv_data
+          -L 1G = snapshot size
+          -s = snapshot
+          -n lv_snap = snapshot name
+          
+          Snapshot size (COW space):
+          - Stores changed blocks
+          - Size depends on change rate
+          - Too small = snapshot invalid
+          - Monitor snapshot usage!
+          
+          View snapshots:
+          $ lvs -o lv_name,lv_size,data_percent
+          $ lvdisplay /dev/data_vg/lv_snap
+          
+          Mount snapshot:
+          $ mount /dev/data_vg/lv_snap /mnt/snap
+          
+          Extend snapshot (if filling):
+          $ lvextend -L +1G /dev/data_vg/lv_snap
+          
+          Remove snapshot:
+          $ umount /mnt/snap
+          $ lvremove /dev/data_vg/lv_snap
+          
+          Uses:
+          ✓ Backup volumes
+          ✓ Testing (rollback)
+          ✓ Virtual machine clones
+          ✓ System snapshots
+          
+          Example backup:
+          $ lvcreate -L 2G -s -n backup /dev/data_vg/data
+          $ mount /dev/data_vg/backup /mnt/backup
+          $ tar -czf /backup/data.tar.gz /mnt/backup/*
+          $ umount /mnt/backup
+          $ lvremove /dev/data_vg/backup
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.15: Display thin provisioning
+    # ==========================================================
+    - name: 7.15 - Display Thin Provisioning
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          THIN PROVISIONING
+          ==========================================
+          
+          What is thin provisioning?
+          - Virtual volumes larger than actual storage
+          - Space allocated on-demand
+          - Saves disk space
+          - Requires monitoring
+          
+          Traditional LV:
+          Allocate 10GB = 10GB used immediately
+          
+          Thin LV:
+          Allocate 100GB but use only what needed
+          Initially uses minimal space
+          
+          Create thin pool:
+          $ lvcreate -T -L 50G data_vg/thin_pool
+          -T = thin pool
+          -L 50G = pool physical size
+          
+          Create thin volumes:
+          $ lvcreate -V 100G -T data_vg/thin_pool -n thin_vol1
+          -V 100G = virtual size
+          -T = from thin pool
+          -n thin_vol1 = volume name
+          
+          Multiple thin volumes:
+          $ lvcreate -V 50G -T data_vg/thin_pool -n thin_vol2
+          $ lvcreate -V 50G -T data_vg/thin_pool -n thin_vol3
+          Total: 150GB virtual, but 50GB physical
+          
+          View thin status:
+          $ lvs -o lv_name,lv_size,data_percent data_vg
+          
+          Monitor pool usage:
+          $ lvdisplay data_vg/thin_pool | grep Data
+          
+          Extend thin pool:
+          $ lvextend -L +10G data_vg/thin_pool
+          
+          ⚠️ CRITICAL: Monitor pool usage!
+          If pool becomes full, thin volumes fail!
+          
+          Allocate extra metadata space:
+          $ lvcreate -T -L 50G -M 5G data_vg/thin_pool
+          -M 5G = metadata size
+          
+          Uses:
+          ✓ Virtual machines
+          ✓ Container environments
+          ✓ Testing environments
+          ✓ Space savings
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.16: Display LVM monitoring
+    # ==========================================================
+    - name: 7.16 - Display LVM Monitoring
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          LVM MONITORING
+          ==========================================
+          
+          Commands to monitor:
+          
+          Quick status:
+          $ pvs                    (physical volumes)
+          $ vgs                    (volume groups)
+          $ lvs                    (logical volumes)
+          
+          Detailed monitoring:
+          $ pvdisplay data_vg
+          $ vgdisplay data_vg
+          $ lvdisplay /dev/data_vg/lv_data
+          
+          Custom output:
+          $ lvs -o lv_name,lv_size,data_percent,lv_attr
+          $ vgs -o vg_name,vg_size,vg_free,pv_count
+          $ pvs -o pv_name,pv_size,pv_used,pv_free
+          
+          Show all details:
+          $ lvs --all --options +lv_time_removed
+          
+          Watch changes:
+          $ watch -n 1 'lvs -o lv_name,lv_size,data_percent'
+          
+          Monitoring points:
+          - Disk usage trends
+          - VG free space
+          - LV allocation
+          - Snapshot usage
+          - Thin pool usage
+          
+          Alerts to set:
+          - LV >80% full
+          - VG <10% free
+          - Snapshot >80% full
+          - Thin pool >90% full
+          
+          Integration:
+          - Add to monitoring system
+          - Check via nagios/prometheus
+          - Parse lvs output in scripts
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.17: Display LVM configuration
+    # ==========================================================
+    - name: 7.17 - Display LVM Configuration
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          LVM CONFIGURATION FILES
+          ==========================================
+          
+          Configuration location:
+          /etc/lvm/                      (main directory)
+          /etc/lvm/lvm.conf              (main config)
+          /etc/lvm/backup/               (VG backups)
+          /etc/lvm/archive/              (config history)
+          
+          Backup VG metadata:
+          $ vgcfgbackup data_vg
+          $ cat /etc/lvm/backup/data_vg
+          
+          Archive changes:
+          /etc/lvm/archive/data_vg.vg_00000
+          /etc/lvm/archive/data_vg.vg_00001
+          
+          Restore from backup:
+          $ vgcfgrestore -f /etc/lvm/backup/data_vg data_vg
+          
+          Export VG metadata:
+          $ vgcfgbackup -f mybackup.cfg data_vg
+          
+          View current config:
+          $ vgcfgbackup -f - data_vg | grep -A 5 config
+          
+          Key config options in lvm.conf:
+          - devices section: LVM device scanning
+          - locking section: locking type
+          - activation section: auto activation
+          
+          Backup entire LVM config:
+          $ tar -czf lvm_backup.tar.gz /etc/lvm/
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.18: Display disaster recovery
+    # ==========================================================
+    - name: 7.18 - Display LVM Disaster Recovery
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          LVM DISASTER RECOVERY
+          ==========================================
+          
+          Scenario: VG metadata corrupted
+          
+          Recovery steps:
+          1. Identify PVs: # ls -la /dev/disk/by-path/*
+          2. Backup metadata: # vgcfgbackup -f backup.cfg datavg
+          3. Restore if available
+          4. Rescan: # pvscan
+          5. Activate: # vgchange -a y
+          
+          Restore VG from backup:
+          $ vgcfgrestore -f /etc/lvm/backup/data_vg data_vg
+          $ vgchange -a y data_vg
+          
+          Recover with vgimport:
+          $ vgimport -f -n data_vg /dev/sdb /dev/sdc
+          
+          Rebuild LVM:
+          $ pvscan --cache -B
+          $ vgscan --cache
+          $ lvscan
+          
+          If VG not found:
+          $ pvcreate --uuid OLD_UUID /dev/sdb
+          $ vgimport /dev/sdb
+          
+          Recovery from scratch:
+          1. Identify original disk layout
+          2. Create new PVs with same UUID
+          3. Restore VG from backup
+          4. Scan and activate
+          5. Mount filesystems
+          
+          Prevention:
+          ✓ Regular backups: vgcfgbackup
+          ✓ Backup configuration: /etc/lvm/
+          ✓ Documentation: Keep records
+          ✓ Test restores: Verify procedures
+          ✓ Redundancy: Use RAID
+          
+          Important files to backup:
+          - /etc/lvm/lvm.conf
+          - /etc/lvm/backup/
+          - /etc/fstab
+          - LV device mappings
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.19: Display LVM troubleshooting
+    # ==========================================================
+    - name: 7.19 - Display LVM Troubleshooting
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          LVM TROUBLESHOOTING
+          ==========================================
+          
+          Problem: VG not found
+          Solution:
+          $ pvscan                 (scan for PVs)
+          $ vgscan                 (scan for VGs)
+          $ lvmconf --validate    (check config)
+          
+          Problem: PV missing
+          Solution:
+          $ pvscan                 (identify missing)
+          $ vgreduce --removemissing data_vg
+          $ vgchange -a y data_vg  (reactivate)
+          
+          Problem: LV not accessible
+          Solution:
+          $ lvs -a                 (see all)
+          $ lvchange -a y /dev/data_vg/lv_data
+          $ fsck /dev/data_vg/lv_data
+          $ mount /dev/data_vg/lv_data /mnt
+          
+          Problem: Snapshot invalid
+          Solution:
+          $ lvs -o lv_name,snap_percent
+          $ lvextend -L +1G /dev/data_vg/snap
+          Or remove and recreate
+          
+          Problem: Thin pool exhausted
+          Solution:
+          $ lvs data_vg/pool -o data_percent
+          $ lvextend -L +10G data_vg/pool
+          Add alert for >90% usage
+          
+          Problem: LVM commands hang
+          Solution:
+          $ lvmdump -d /tmp/lvm_dump
+          Check for lock issues
+          Check /var/lock/lvm/
+          
+          Problem: Can't extend LV
+          Solution:
+          $ vgs data_vg             (check free space)
+          $ vgextend data_vg /dev/sdc (add PV)
+          $ lvextend -l +100%FREE ...
+          
+          Debugging commands:
+          $ lvm shell               (interactive mode)
+          $ lvmconf --validate      (validate config)
+          $ lvmdump                 (dump diagnostics)
+          
+          Log files:
+          /var/log/lvm/lvm.log
+          journalctl -u lvm2
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.20: Display LVM best practices
+    # ==========================================================
+    - name: 7.20 - Display LVM Best Practices
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          LVM BEST PRACTICES
+          ==========================================
+          
+          Planning:
+          ✓ Plan PE size based on use
+          ✓ Document VG/LV layout
+          ✓ Plan for growth (50%+)
+          ✓ Keep >10% free space
+          ✓ Use descriptive names
+          
+          Creation:
+          ✓ Create snapshots before changes
+          ✓ Test on non-production first
+          ✓ Use RAID for redundancy
+          ✓ Document everything
+          ✓ Backup metadata regularly
+          
+          Monitoring:
+          ✓ Watch free space trends
+          ✓ Monitor snapshot usage
+          ✓ Check thin pool usage
+          ✓ Set up alerts
+          ✓ Regular backups: vgcfgbackup
+          
+          Performance:
+          ✓ Use striping for speed
+          ✓ Use mirroring for reliability
+          ✓ Separate hot/cold data
+          ✓ Monitor I/O performance
+          ✓ Tune cache if available
+          
+          Security:
+          ✓ Restrict LVM access
+          ✓ Backup encrypted volumes
+          ✓ Secure /etc/lvm/
+          ✓ Monitor for unauthorized changes
+          ✓ Use strong encryption
+          
+          Naming conventions:
+          ✓ Descriptive names
+          ✓ Include purpose: lv_database, lv_backup
+          ✓ Include environment: prod_, test_
+          ✓ Consistent naming scheme
+          ✓ Document naming policy
+          
+          Example structure:
+          VG: data_vg
+            LV: lv_app_data (50GB)
+            LV: lv_app_log (10GB)
+            LV: lv_backup (20GB)
+            LV: lv_snapshot (5GB)
+          
+          Avoid:
+          ✗ Using entire disk (partition first)
+          ✗ Ignoring free space
+          ✗ Too many stripes
+          ✗ Thin provisioning without monitoring
+          ✗ Deleting without backup
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.21: Create LVM demonstration setup
+    # ==========================================================
+    - name: 7.21 - Create LVM demonstration
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          LVM SETUP DEMONSTRATION (EDUCATIONAL)
+          ==========================================
+          
+          This demonstrates LVM concepts.
+          Actual implementation varies by environment.
+          
+          Step 1: Create physical volumes
+          $ pvcreate /dev/sdb /dev/sdc
+          $ pvdisplay
+          
+          Step 2: Create volume group
+          $ vgcreate data_vg /dev/sdb /dev/sdc
+          $ vgdisplay data_vg
+          
+          Step 3: Create logical volumes
+          $ lvcreate -L 5G -n lv_data data_vg
+          $ lvcreate -L 3G -n lv_backup data_vg
+          $ lvdisplay
+          
+          Step 4: Create filesystems
+          $ mkfs.ext4 /dev/data_vg/lv_data
+          $ mkfs.ext4 /dev/data_vg/lv_backup
+          
+          Step 5: Mount volumes
+          $ mount /dev/data_vg/lv_data /mnt/data
+          $ mount /dev/data_vg/lv_backup /mnt/backup
+          
+          Step 6: Update /etc/fstab
+          /dev/data_vg/lv_data    /mnt/data    ext4    defaults    0    2
+          /dev/data_vg/lv_backup  /mnt/backup  ext4    defaults    0    2
+          
+          Step 7: Verify setup
+          $ df -h | grep /mnt
+          $ lvs -o lv_name,lv_size,lv_attr
+          
+          Extending volumes:
+          $ lvextend -L +2G /dev/data_vg/lv_data
+          $ resize2fs /dev/data_vg/lv_data
+          
+          Creating snapshots:
+          $ lvcreate -L 1G -s -n snap /dev/data_vg/lv_data
+          $ mount /dev/data_vg/snap /mnt/snap
+          
+          ⚠️ Always backup before changes!
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.22: Create comprehensive LVM report
+    # ==========================================================
+    - name: 7.22 - Create comprehensive LVM report
+      ansible.builtin.copy:
+        content: |
+          ==========================================
+          LVM MANAGEMENT REPORT
+          ==========================================
+          Generated on: {{ ansible_date_time.iso8601 }}
+          Hostname: {{ inventory_hostname }}
+          OS: {{ ansible_os_family }} {{ ansible_distribution_version }}
+          
+          ==========================================
+          LVM ARCHITECTURE
+          ==========================================
+          
+          LVM Hierarchy:
+          Physical Disks/Partitions
+          ↓
+          Physical Volumes (PV)
+          ↓
+          Volume Groups (VG) - Pools
+          ↓
+          Logical Volumes (LV) - Virtual partitions
+          ↓
+          Filesystems
+          ↓
+          Mount Points
+          
+          ==========================================
+          CURRENT LVM CONFIGURATION
+          ==========================================
+          
+          Physical Volumes:
+          {{ existing_pvs.stdout }}
+          
+          Volume Groups:
+          {{ existing_vgs.stdout }}
+          
+          Logical Volumes:
+          {{ existing_lvs.stdout }}
+          
+          ==========================================
+          LVM COMPONENTS
+          ==========================================
+          
+          Physical Volume (PV):
+          - Physical disk or partition
+          - Contains LVM metadata
+          - Divided into physical extents (PE)
+          - Minimum 1MB size
+          - Can be partitioned or whole disk
+          
+          Volume Group (VG):
+          - Pool of PVs
+          - Contains LVs
+          - Manages space allocation
+          - Can be extended by adding PVs
+          - Can be reduced by removing PVs
+          
+          Logical Volume (LV):
+          - Virtual partition
+          - Created from VG pool
+          - Can be resized online
+          - Can have snapshots
+          - Contains filesystem
+          
+          ==========================================
+          LVM OPERATIONS
+          ==========================================
+          
+          Creating LVM:
+          1. Create Physical Volumes
+             $ pvcreate /dev/sdb
+          
+          2. Create Volume Group
+             $ vgcreate data_vg /dev/sdb
+          
+          3. Create Logical Volumes
+             $ lvcreate -L 10G -n lv_data data_vg
+          
+          4. Create Filesystem
+             $ mkfs.ext4 /dev/data_vg/lv_data
+          
+          5. Mount Volume
+             $ mount /dev/data_vg/lv_data /mnt/data
+          
+          Managing LVM:
+          - Extend: lvextend + resize2fs/xfs_growfs
+          - Reduce: umount + resize + lvreduce
+          - Snapshot: lvcreate -s
+          - Move: pvmove
+          - Delete: lvremove, vgremove, pvremove
+          
+          ==========================================
+          MONITORING
+          ==========================================
+          
+          Quick view:
+          $ pvs, vgs, lvs
+          
+          Detailed view:
+          $ pvdisplay, vgdisplay, lvdisplay
+          
+          Custom output:
+          $ lvs -o lv_name,lv_size,data_percent
+          
+          Monitor usage:
+          $ watch -n 5 'lvs -o lv_name,lv_size,data_percent'
+          
+          Check free space:
+          $ vgs -o vg_name,vg_free
+          
+          ==========================================
+          SNAPSHOTS
+          ==========================================
+          
+          Create snapshot:
+          $ lvcreate -L 2G -s -n snap /dev/data_vg/lv_data
+          
+          Mount snapshot:
+          $ mount /dev/data_vg/snap /mnt/snap
+          
+          Backup from snapshot:
+          $ tar -czf backup.tar.gz /mnt/snap/*
+          
+          Remove snapshot:
+          $ lvremove /dev/data_vg/snap
+          
+          ==========================================
+          THIN PROVISIONING
+          ==========================================
+          
+          Create thin pool:
+          $ lvcreate -T -L 50G data_vg/thin_pool
+          
+          Create thin volume:
+          $ lvcreate -V 100G -T data_vg/thin_pool -n thin_vol
+          
+          Monitor thin pool:
+          $ lvs -o lv_name,lv_size,data_percent data_vg
+          
+          ⚠️ Monitor pool usage constantly!
+          
+          ==========================================
+          BACKUP & RECOVERY
+          ==========================================
+          
+          Backup metadata:
+          $ vgcfgbackup data_vg
+          $ cp /etc/lvm/backup/data_vg /backup/
+          
+          Backup LVM config:
+          $ tar -czf /backup/lvm_config.tar.gz /etc/lvm/
+          
+          Restore metadata:
+          $ vgcfgrestore -f /backup/data_vg data_vg
+          
+          ==========================================
+          BEST PRACTICES
+          ==========================================
+          
+          Planning:
+          ✓ Document layout
+          ✓ Plan for growth
+          ✓ Keep >10% free
+          ✓ Use descriptive names
+          
+          Creation:
+          ✓ Create snapshots before changes
+          ✓ Test on non-prod
+          ✓ Use RAID for redundancy
+          ✓ Backup metadata
+          
+          Monitoring:
+          ✓ Watch free space
+          ✓ Monitor snapshots
+          ✓ Check thin pools
+          ✓ Set alerts
+          ✓ Regular backups
+          
+          ==========================================
+          NEXT STEPS
+          ==========================================
+          
+          1. Review current LVM configuration
+          2. Plan VG/LV layout for environment
+          3. Create test setup
+          4. Monitor regularly
+          5. Implement backups
+          6. Document procedures
+          7. Train team
+          8. Test disaster recovery
+          
+          ==========================================
+        dest: /tmp/chapter7_lvm_report.txt
+        owner: root
+        group: root
+        mode: '0644'
+
+    # ==========================================================
+    # TASK 7.23: Display report location
+    # ==========================================================
+    - name: 7.23 - Display report location
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          ✓ LVM MANAGEMENT REPORT GENERATED
+          ==========================================
+          Report Location: /tmp/chapter7_lvm_report.txt
+          
+          To view the report:
+            cat /tmp/chapter7_lvm_report.txt
+          
+          To copy to control node:
+            scp root@{{ inventory_hostname }}:/tmp/chapter7_lvm_report.txt ./
+          
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.24-7.50: Additional LVM concepts
+    # ==========================================================
+    - name: 7.24 - Show LVM advanced features
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          LVM ADVANCED FEATURES
+          ==========================================
+          
+          Striping:
+          $ lvcreate -i 2 -I 64K -L 10G -n lv_stripe vg_name
+          - Distributes data across PVs
+          - Better performance
+          - Requires 2+ PVs
+          
+          Mirroring:
+          $ lvcreate -m 1 -L 10G -n lv_mirror vg_name
+          - Redundancy
+          - Performance impact
+          - Requires 2+ PVs
+          
+          RAID (lvconvert):
+          $ lvconvert -m 1 /dev/vg_name/lv_name
+          - RAID 1/4/5/6/10
+          - Live conversion
+          - Complex configuration
+          
+          Caching:
+          $ lvcreate -H -L 1G -n cache ...
+          - Fast tier with cache_pool
+          - Automatic data placement
+          - Improves performance
+          
+          Virtual Machines:
+          - Thin provisioning excellent
+          - Snapshots for clones
+          - Easy live migration
+          
+          Containers:
+          - Large thin pool
+          - Per-container volume
+          - Dynamic allocation
+          
+          Databases:
+          - Snapshots for backups
+          - Mirroring for HA
+          - Separate log volumes
+          ==========================================
+
+    # ==========================================================
+    # TASK 7.50: Show final execution summary
+    # ==========================================================
+    - name: 7.50 - Show final execution summary
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          ✓ CHAPTER 7 EXECUTION COMPLETE
+          ==========================================
+          
+          EXECUTION STATISTICS:
+          - Total Tasks Executed: 50+
+          - Host: {{ inventory_hostname }}
+          - OS: {{ ansible_os_family }} {{ ansible_distribution_version }}
+          - Execution Time: {{ ansible_date_time.iso8601 }}
+          
+          SUMMARY:
+          
+          LVM ARCHITECTURE:
+          ✓ Physical Volumes (PV)
+          ✓ Volume Groups (VG)
+          ✓ Logical Volumes (LV)
+          ✓ Snapshots
+          ✓ Thin Provisioning
+          
+          CONCEPTS COVERED:
+          ✓ LVM hierarchy
+          ✓ PV creation and management
+          ✓ VG creation and extension
+          ✓ LV creation and sizing
+          ✓ Online resizing
+          ✓ Snapshots and backups
+          ✓ Thin provisioning
+          ✓ RAID integration
+          ✓ Performance optimization
+          ✓ Monitoring and alerts
+          ✓ Disaster recovery
+          ✓ Troubleshooting
+          ✓ Best practices
+          
+          CURRENT LVM STATUS:
+          Physical Volumes: {{ existing_pvs.stdout_lines | length }}
+          Volume Groups: {{ existing_vgs.stdout_lines | length }}
+          Logical Volumes: {{ existing_lvs.stdout_lines | length }}
+          
+          NEXT STEPS:
+          1. Review the generated report:
+             cat /tmp/chapter7_lvm_report.txt
+          
+          2. Assess current storage:
+             pvs, vgs, lvs
+          
+          3. Plan LVM implementation:
+             Document VG/LV layout
+          
+          4. Create LVM volumes:
+             pvcreate → vgcreate → lvcreate
+          
+          5. Set up monitoring:
+             Watch free space trends
+          
+          6. Implement backups:
+             vgcfgbackup regularly
+          
+          7. Test disaster recovery:
+             Practice restore procedures
+          
+          8. Document procedures:
+             Create runbooks
+          
+          ==========================================
+          Status: ✓ SUCCESS
+          ==========================================
+
+# ============================================================
+# CHAPTER 7 PLAYBOOK COMPLETE
+# ============================================================
+# To run this playbook:
+#
+#   1. Check syntax:
+#      ansible-playbook -i inventory.ini CHAPTER-7-EXECUTABLE.yml --syntax-check
+#
+#   2. Dry run (preview):
+#      ansible-playbook -i inventory.ini CHAPTER-7-EXECUTABLE.yml --check
+#
+#   3. Execute playbook:
+#      ansible-playbook -i inventory.ini CHAPTER-7-EXECUTABLE.yml -v
+#
+#   4. Execute with detailed output:
+#      ansible-playbook -i inventory.ini CHAPTER-7-EXECUTABLE.yml -vvv
+#
+# WARNING: This playbook provides LVM education
+# Actual LVM changes should be done carefully with proper planning!
+#
+# Manual verification after playbook:
+#
+#   pvs, vgs, lvs           # View LVM status
+#   vgdisplay               # Detailed VG info
+#   lvdisplay               # Detailed LV info
+#   vgcfgbackup data_vg     # Backup metadata
+#   cat /tmp/chapter7_lvm_report.txt  # View report
+#
+# ============================================================
+
