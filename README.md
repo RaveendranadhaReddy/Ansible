@@ -21,7 +21,7 @@
 
 ### <b>Chapter 9: Network Configuration 
 
-### <b>Chapter 10: Firewall Management <br> <br>
+### <b>Chapter 10: Troubleshooting <br> <br>
 
 
 ## <b> <U> Chapters 11-30 (SUMMARIES + KEY COMMANDS):<br>
@@ -32,7 +32,7 @@ Troubleshooting tips
 
 ✅ Additional Content:
 
-Best Practices checklist<br>
+Best Practices checklist (Under-progress)<br>
 
 Safe Execution guidelines<br>
 
@@ -40,8 +40,6 @@ Performance Optimization<br>
 
 Idempotency examples<br>
 
-Troubleshooting (common issues)<br>
-
-DevOps Integration (Jenkins, GitLab CI)<br>
+DevOps Integration(pending) (Jenkins, GitLab CI)<br>
 
 Running all 30 playbooks sequentially<br>
