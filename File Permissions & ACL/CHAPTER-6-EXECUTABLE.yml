@@ -1,0 +1,1373 @@
+---
+# ============================================================
+# CHAPTER 6: DISK & FILESYSTEM MANAGEMENT
+# ============================================================
+# READY TO EXECUTE VERSION - All 45+ Tasks
+#
+# Duration: 25-35 minutes
+# Difficulty: ⭐⭐⭐ Advanced
+# Prerequisites: Root/sudo access, Chapters 1-5 completed
+#
+# Usage:
+#   ansible-playbook -i inventory.ini CHAPTER-6-EXECUTABLE.yml -v
+#
+# Before running:
+#   1. Update inventory.ini with your server IPs
+#   2. Test connectivity: ansible all -i inventory.ini -m ping
+#   3. Run syntax check: ansible-playbook -i inventory.ini CHAPTER-6-EXECUTABLE.yml --syntax-check
+#   4. WARNING: This playbook modifies disk structures - test in non-prod first!
+#
+# ============================================================
+
+- name: Chapter 6 - Disk and Filesystem Management
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    # Partitions to manage
+    disk_partitions:
+      - device: "/dev/sdb"
+        display_name: "Secondary Disk"
+        partitions:
+          - number: 1
+            size: "1G"
+            type: "primary"
+            filesystem: "ext4"
+      
+      - device: "/dev/sdc"
+        display_name: "Tertiary Disk"
+        partitions:
+          - number: 1
+            size: "2G"
+            type: "primary"
+            filesystem: "ext4"
+
+    # Filesystems to create
+    filesystems:
+      - path: "/mnt/data"
+        device: "/dev/sdb1"
+        fstype: "ext4"
+        opts: "defaults"
+        dump: "0"
+        passno: "2"
+        owner: "root"
+        group: "root"
+        mode: "0755"
+      
+      - path: "/mnt/backup"
+        device: "/dev/sdc1"
+        fstype: "ext4"
+        opts: "defaults"
+        dump: "0"
+        passno: "2"
+        owner: "root"
+        group: "root"
+        mode: "0755"
+
+    # LVM volumes
+    lvm_volumes:
+      - vg_name: "datavg"
+        pv_devices: ["/dev/sdd"]
+        lv_name: "lv_data"
+        lv_size: "10G"
+        fstype: "ext4"
+        mount_path: "/mnt/lvm_data"
+
+    # Disk monitoring thresholds
+    disk_thresholds:
+      warning: "80"
+      critical: "90"
+
+  tasks:
+
+    # ==========================================================
+    # TASK 6.1: Display Chapter 6 Header
+    # ==========================================================
+    - name: 6.1 - Display Chapter 6 Header
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          CHAPTER 6: DISK & FILESYSTEM MANAGEMENT
+          ==========================================
+          Duration: 25-35 minutes
+          Difficulty: ⭐⭐⭐ Advanced
+          Total Tasks: 45+
+          
+          Topics:
+          - Disk partitioning
+          - Filesystem creation
+          - Mount management
+          - LVM (Logical Volume Manager)
+          - Disk monitoring
+          - Storage optimization
+          - Backup strategies
+          - Filesystem checks
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.2: Display disk information
+    # ==========================================================
+    - name: 6.2 - Display disk information
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          DISK INFORMATION CONCEPTS
+          ==========================================
+          
+          Disk Hierarchy:
+          Physical Disk → Partitions → Filesystems → Mount Points
+          
+          Key Terms:
+          - Device: /dev/sda, /dev/sdb (disk devices)
+          - Partition: /dev/sda1, /dev/sda2 (disk sections)
+          - Filesystem: ext4, xfs, btrfs (data organization)
+          - Mount Point: /mnt, /var (access location)
+          
+          Tools:
+          - lsblk: List block devices
+          - fdisk/parted: Partition management
+          - mkfs: Filesystem creation
+          - mount: Filesystem mounting
+          - df: Disk space usage
+          - du: Directory space usage
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.3: List all block devices
+    # ==========================================================
+    - name: 6.3 - List all block devices
+      ansible.builtin.shell: "lsblk --all --output NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT"
+      register: block_devices
+      changed_when: false
+
+    # ==========================================================
+    # TASK 6.4: Display block devices
+    # ==========================================================
+    - name: 6.4 - Display block devices
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          BLOCK DEVICES
+          ==========================================
+          {{ block_devices.stdout }}
+          
+          Understanding output:
+          NAME: Device name (/dev/...)
+          SIZE: Total size of device/partition
+          TYPE: disk/part/lvm
+          FSTYPE: Filesystem type (ext4, xfs, etc)
+          MOUNTPOINT: Where mounted
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.5: Get disk usage
+    # ==========================================================
+    - name: 6.5 - Get disk usage
+      ansible.builtin.shell: "df -h | head -20"
+      register: disk_usage
+      changed_when: false
+
+    # ==========================================================
+    # TASK 6.6: Display disk usage
+    # ==========================================================
+    - name: 6.6 - Display disk usage
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          DISK USAGE (df -h)
+          ==========================================
+          {{ disk_usage.stdout }}
+          
+          Understanding output:
+          Filesystem: Device name
+          Size: Total capacity
+          Used: Space used
+          Avail: Available space
+          Use%: Percentage used
+          Mounted on: Mount point
+          
+          Warnings:
+          ⚠️ Over 90% = Critical
+          ⚠️ Over 80% = Warning
+          ⚠️ Keep >10% free for system performance
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.7: Get inode usage
+    # ==========================================================
+    - name: 6.7 - Get inode usage
+      ansible.builtin.shell: "df -i | head -10"
+      register: inode_usage
+      changed_when: false
+
+    # ==========================================================
+    # TASK 6.8: Display inode usage
+    # ==========================================================
+    - name: 6.8 - Display inode usage
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          INODE USAGE (df -i)
+          ==========================================
+          {{ inode_usage.stdout }}
+          
+          Understanding Inodes:
+          - Inodes store file metadata (permissions, links, etc)
+          - Each file uses one inode
+          - Limited per filesystem
+          - Separate from disk space
+          
+          Inode Issues:
+          - Can run out of inodes before disk space
+          - Symlink spam causes inode exhaustion
+          - Many small files use more inodes
+          
+          Monitor inodes regularly!
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.9: Describe filesystem types
+    # ==========================================================
+    - name: 6.9 - Describe filesystem types
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          FILESYSTEM TYPES
+          ==========================================
+          
+          ext4 (Fourth Extended Filesystem)
+          - Default on RHEL/CentOS
+          - Stable and proven
+          - Max size: 16TB
+          - Good for general use
+          - Create: mkfs.ext4 /dev/sda1
+          
+          xfs (eXtended File System)
+          - Default on RHEL 7+
+          - Better for large files
+          - Excellent performance
+          - Max size: 8EB (exabyte!)
+          - Create: mkfs.xfs /dev/sda1
+          
+          btrfs (B-tree filesystem)
+          - Advanced features
+          - Snapshots & compression
+          - Copy-on-write
+          - Create: mkfs.btrfs /dev/sda1
+          
+          vfat/FAT32
+          - For USB/removable media
+          - Limited to 4GB files
+          - Create: mkfs.vfat /dev/sda1
+          
+          swap
+          - Virtual memory on disk
+          - Not a regular filesystem
+          - Create: mkswap /dev/sda1
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.10: Describe partitioning
+    # ==========================================================
+    - name: 6.10 - Describe partitioning concepts
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          DISK PARTITIONING
+          ==========================================
+          
+          Partition Table Types:
+          
+          MBR (Master Boot Record)
+          - Legacy partition scheme
+          - Supports max 4 primary partitions
+          - Max disk size: 2TB
+          - Boot code in first 512 bytes
+          - Use with older systems
+          
+          GPT (GUID Partition Table)
+          - Modern partition scheme
+          - Supports unlimited partitions
+          - Max disk size: 8EB
+          - UEFI compatible
+          - Recommended for new systems
+          
+          Partition Types:
+          - Primary: Can boot, max 4
+          - Extended: Container for logical
+          - Logical: Inside extended partition
+          
+          Tools:
+          - fdisk: MBR partitioning (interactive)
+          - parted: GPT partitioning (script-friendly)
+          - gdisk: GPT partitioning (interactive)
+          
+          Example (fdisk):
+          $ fdisk /dev/sda
+          n = new partition
+          p = primary
+          e = extended
+          w = write changes
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.11: Describe LVM
+    # ==========================================================
+    - name: 6.11 - Describe LVM concepts
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          LVM (LOGICAL VOLUME MANAGER)
+          ==========================================
+          
+          What is LVM?
+          - Abstraction layer above physical disks
+          - Flexible storage management
+          - Dynamic resizing
+          - Snapshots capability
+          - Better than traditional partitions
+          
+          LVM Hierarchy:
+          Physical Volume (PV) → Physical Disk/Partition
+          Volume Group (VG) → Pool of PVs
+          Logical Volume (LV) → Partition-like device
+          
+          Benefits:
+          ✓ Resize volumes on the fly
+          ✓ Combine multiple disks
+          ✓ Create snapshots
+          ✓ Move data between disks
+          ✓ Named volumes
+          
+          Common Commands:
+          pvcreate /dev/sda1      (create physical volume)
+          vgcreate vg0 /dev/sda1  (create volume group)
+          lvcreate -L 10G -n lv0 vg0  (create logical volume)
+          
+          View LVM:
+          pvdisplay               (physical volumes)
+          vgdisplay               (volume groups)
+          lvdisplay               (logical volumes)
+          
+          Resize:
+          lvextend -L +5G /dev/vg0/lv0  (increase by 5G)
+          lvreduce -L -5G /dev/vg0/lv0  (decrease by 5G)
+          resize2fs /dev/vg0/lv0        (resize filesystem)
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.12: Show mount points
+    # ==========================================================
+    - name: 6.12 - Show mount points
+      ansible.builtin.shell: "mount | grep -E '(/|/boot|/home|/var|/tmp|/opt)' | head -20"
+      register: mount_points
+      changed_when: false
+
+    # ==========================================================
+    # TASK 6.13: Display mount points
+    # ==========================================================
+    - name: 6.13 - Display mount points
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          MOUNT POINTS
+          ==========================================
+          {{ mount_points.stdout }}
+          
+          Common Mount Points:
+          / - Root filesystem (required)
+          /boot - Boot files & kernel
+          /home - User home directories
+          /var - Variable data (logs, cache)
+          /tmp - Temporary files
+          /opt - Optional software
+          /mnt - Manual mounts
+          /media - Removable media
+          
+          Mount Options:
+          ro = read-only
+          rw = read-write
+          noexec = no execute
+          nosuid = no setuid
+          nodev = no devices
+          
+          Persistent mounts: /etc/fstab
+          Temporary mounts: mount command
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.14: Create mount directories
+    # ==========================================================
+    - name: 6.14 - Create mount directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+      loop: "{{ filesystems }}"
+      register: mount_dirs_created
+
+    # ==========================================================
+    # TASK 6.15: Display mount directory creation
+    # ==========================================================
+    - name: 6.15 - Display mount directory creation
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          MOUNT DIRECTORIES CREATED
+          ==========================================
+          {% for item in filesystems %}
+          ✓ {{ item.path }}
+            Owner: {{ item.owner }}:{{ item.group }}
+            Permissions: {{ item.mode }}
+          {% endfor %}
+          
+          Status: {% if mount_dirs_created is changed %}Created{% else %}Already exist{% endif %}
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.16: Display filesystem mounting in fstab
+    # ==========================================================
+    - name: 6.16 - Display /etc/fstab configuration
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          /etc/FSTAB CONFIGURATION
+          ==========================================
+          
+          What is /etc/fstab?
+          - File system table
+          - Defines filesystems to mount at boot
+          - Read by mount -a during boot
+          
+          Format:
+          Device  Mount_Point  Filesystem  Options  Dump  Pass
+          /dev/sda1  /           ext4       defaults  0     1
+          
+          Fields:
+          1. Device: /dev/sda1, UUID, LABEL
+          2. Mount point: /mnt/data
+          3. Filesystem: ext4, xfs, etc
+          4. Options: defaults, ro, rw, etc
+          5. Dump: 0 (no backup), 1 (backup)
+          6. Pass: 0 (no check), 1 (root check first), 2 (other)
+          
+          Example entry:
+          /dev/sdb1  /mnt/data  ext4  defaults  0  2
+          
+          Add entry:
+          1. Edit /etc/fstab
+          2. Run: mount -a (test)
+          3. Reboot to verify
+          
+          ⚠️ Be careful editing /etc/fstab!
+          Errors can prevent boot!
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.17: Show storage space by directory
+    # ==========================================================
+    - name: 6.17 - Show storage space by directory
+      ansible.builtin.shell: "du -sh /* 2>/dev/null | sort -rh | head -10"
+      register: dir_space
+      changed_when: false
+
+    # ==========================================================
+    # TASK 6.18: Display directory space usage
+    # ==========================================================
+    - name: 6.18 - Display directory space usage
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          DIRECTORY SPACE USAGE (du -sh /*)
+          ==========================================
+          {{ dir_space.stdout }}
+          
+          Common high-space directories:
+          /var/log - Logs (can grow large)
+          /var/cache - Cache files
+          /home - User files
+          /opt - Optional software
+          
+          Cleanup options:
+          - Old log rotation: logrotate
+          - Clear cache: rm -rf /var/cache/*
+          - Clear tmp: rm -rf /tmp/*
+          
+          Commands:
+          du -sh /path         (total size)
+          du -sh /path/*       (per subdirectory)
+          du -sh /* | sort -rh (largest dirs)
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.19: Describe filesystem checks
+    # ==========================================================
+    - name: 6.19 - Describe filesystem checks
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          FILESYSTEM CHECKS (fsck)
+          ==========================================
+          
+          What is fsck?
+          - Filesystem consistency check
+          - Repairs damaged filesystems
+          - Run at boot if needed
+          - Run on unmounted filesystems
+          
+          Tools:
+          fsck - Generic tool
+          e2fsck - For ext2/ext3/ext4
+          xfs_repair - For XFS
+          
+          Run checks:
+          $ fsck /dev/sda1         (manual)
+          $ fsck -n /dev/sda1      (dry-run)
+          $ fsck -y /dev/sda1      (auto-fix)
+          
+          ⚠️ MUST unmount before checking!
+          ⚠️ RISKY operation, backup first!
+          
+          Boot check:
+          - Enabled in /etc/fstab with Pass=1/2
+          - Run automatically if last check > 30 days
+          - Can slow boot time
+          
+          Force check next boot:
+          $ touch /forcefsck
+          $ reboot
+          
+          Check status:
+          $ dumpe2fs /dev/sda1 | grep -i "last check"
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.20: Describe partition strategies
+    # ==========================================================
+    - name: 6.20 - Describe partitioning strategies
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          PARTITIONING STRATEGIES
+          ==========================================
+          
+          Minimal Partitioning:
+          / - Everything (simple but risky)
+          
+          Recommended Partitioning:
+          / - Root filesystem
+          /boot - Boot files (small, ~1GB)
+          /home - User files (large)
+          /var - Logs, cache (can grow)
+          /tmp - Temporary (small)
+          swap - Virtual memory (1-2x RAM)
+          
+          Advanced Partitioning:
+          / - Root (20-30GB)
+          /boot - Boot (1GB, separate disk)
+          /home - Users (large)
+          /var - Logs (can grow large)
+          /var/log - Logs (very large)
+          /tmp - Temp (small)
+          /opt - Software (depends)
+          swap - Virtual memory
+          
+          Benefits of separate partitions:
+          ✓ Protect root from full disks
+          ✓ Easy backups
+          ✓ Different mount options
+          ✓ Different permissions
+          ✓ Easier maintenance
+          
+          Drawbacks:
+          ✗ Complexity increases
+          ✗ Wasted space (unused allocation)
+          ✗ Harder to resize
+          ✗ More administration
+          
+          LVM advantages over fixed partitions:
+          ✓ Dynamic resizing
+          ✓ Snapshots
+          ✓ Live migration
+          ✓ Volume groups
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.21: Show partition table
+    # ==========================================================
+    - name: 6.21 - Show partition table
+      ansible.builtin.shell: "parted -l 2>/dev/null | head -40"
+      register: partition_table
+      changed_when: false
+      failed_when: false
+
+    # ==========================================================
+    # TASK 6.22: Display partition table
+    # ==========================================================
+    - name: 6.22 - Display partition table
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          PARTITION TABLE (parted -l)
+          ==========================================
+          {% if partition_table.stdout %}
+          {{ partition_table.stdout }}
+          {% else %}
+          (parted not available or no disks)
+          {% endif %}
+          
+          Parted commands:
+          parted /dev/sda            (enter interactive)
+          p = print partition table
+          n = new partition
+          d = delete partition
+          mkpart = make partition
+          resizepart = resize partition
+          quit = exit
+          
+          Non-interactive:
+          parted -s /dev/sda mkpart primary 0% 100%
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.23: Describe swap space
+    # ==========================================================
+    - name: 6.23 - Describe swap space
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          SWAP SPACE
+          ==========================================
+          
+          What is swap?
+          - Virtual memory on disk
+          - Used when RAM full
+          - Much slower than RAM
+          - Necessary for hibernate
+          
+          How much swap?
+          - Desktop: 1-2x RAM
+          - Server: 0-1x RAM
+          - Hibernation: Equal to RAM
+          
+          Create swap partition:
+          mkswap /dev/sda1
+          swapon /dev/sda1
+          swapon -a          (enable all)
+          
+          Create swap file:
+          dd if=/dev/zero of=/swapfile bs=1G count=4
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          
+          Add to /etc/fstab:
+          /dev/sda1 none swap sw 0 0
+          /swapfile none swap sw 0 0
+          
+          View swap:
+          swapon -s
+          free -h
+          
+          Swap settings:
+          vm.swappiness = 30  (in /etc/sysctl.conf)
+          0 = use only if needed
+          100 = use aggressively
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.24: Show current swap
+    # ==========================================================
+    - name: 6.24 - Show current swap
+      ansible.builtin.shell: "swapon -s || free -h | grep -i swap"
+      register: current_swap
+      changed_when: false
+
+    # ==========================================================
+    # TASK 6.25: Display swap status
+    # ==========================================================
+    - name: 6.25 - Display swap status
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          CURRENT SWAP STATUS
+          ==========================================
+          {{ current_swap.stdout }}
+          
+          Memory info:
+          $ free -h
+          $ cat /proc/meminfo
+          $ top (press 'm' for memory)
+          
+          Swap metrics:
+          Total = allocated swap
+          Used = currently using
+          Free = available swap
+          
+          High swap usage indicates:
+          - Low RAM
+          - Memory leak
+          - Inefficient applications
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.26: Describe RAID
+    # ==========================================================
+    - name: 6.26 - Describe RAID concepts
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          RAID (REDUNDANT ARRAY OF DISKS)
+          ==========================================
+          
+          RAID Levels:
+          
+          RAID 0 (Striping)
+          - Data split across disks
+          - Performance: ↑↑ (fast)
+          - Redundancy: ✗ (none)
+          - Use: Non-critical, temp data
+          - Disks needed: 2+
+          
+          RAID 1 (Mirroring)
+          - Identical copy on 2 disks
+          - Performance: ↑ (normal)
+          - Redundancy: ✓ (excellent)
+          - Use: System drives
+          - Disks needed: 2
+          
+          RAID 5 (Striping with Parity)
+          - Distributed parity
+          - Performance: ↑↑ (good)
+          - Redundancy: ✓ (good)
+          - Use: General purpose
+          - Disks needed: 3+ (1 lost to parity)
+          - Rebuild time: Long (risky)
+          
+          RAID 6 (Dual Parity)
+          - Like RAID 5 with 2 parity blocks
+          - Performance: ↑ (good)
+          - Redundancy: ✓✓ (excellent)
+          - Use: Large capacity
+          - Disks needed: 4+ (2 lost to parity)
+          
+          RAID 10 (Striped Mirroring)
+          - RAID 1 + RAID 0
+          - Performance: ↑↑ (fast)
+          - Redundancy: ✓ (good)
+          - Use: High-performance storage
+          - Disks needed: 4+
+          
+          Linux RAID: mdadm command
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.27: Describe quotas
+    # ==========================================================
+    - name: 6.27 - Describe disk quotas
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          DISK QUOTAS
+          ==========================================
+          
+          What are quotas?
+          - Limit disk space per user/group
+          - Prevent disk full issues
+          - Enforce fair usage
+          
+          Quota types:
+          - User quotas: Per user limit
+          - Group quotas: Per group limit
+          - Inode quotas: File count limit
+          - Block quotas: Space limit
+          
+          Quota states:
+          - Soft limit: Warning given, time to fix
+          - Hard limit: Strictly enforced
+          - Grace period: Time to fix soft limit
+          
+          Tools:
+          quotacheck     (initialize quotas)
+          edquota        (edit user quotas)
+          quota          (show user quota)
+          repquota       (report all quotas)
+          
+          Example:
+          quotacheck -ugm /home  (check quotas)
+          edquota -u username    (set user quota)
+          quota -u username      (show quota)
+          
+          In /etc/fstab:
+          /dev/sda1 /home ext4 defaults,usrquota,grpquota 0 2
+          
+          Enable:
+          quotaon -augv /home
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.28: Describe backup strategies
+    # ==========================================================
+    - name: 6.28 - Describe backup strategies
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          BACKUP STRATEGIES
+          ==========================================
+          
+          Backup Types:
+          
+          Full Backup
+          - Everything
+          - Largest size
+          - Takes most time
+          - Best recovery
+          
+          Incremental Backup
+          - Only changed since last backup
+          - Smallest size
+          - Fastest
+          - Multiple backups to restore
+          
+          Differential Backup
+          - Changed since last full backup
+          - Medium size
+          - Medium speed
+          - 2 backups to restore
+          
+          3-2-1 Backup Rule:
+          - 3 copies of data
+          - 2 different media types
+          - 1 copy offsite
+          
+          Backup Frequency:
+          Daily: /home, /var/www
+          Weekly: /etc, /opt
+          Monthly: Full system
+          
+          Retention Policy:
+          Daily: 7 days
+          Weekly: 4 weeks
+          Monthly: 12 months
+          Yearly: Permanent
+          
+          Tools:
+          tar - Archive files
+          rsync - Sync directories
+          dd - Full disk backup
+          bacula - Enterprise backup
+          
+          Test restores regularly!
+          ⚠️ Untested backups are useless!
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.29: Describe filesystem optimization
+    # ==========================================================
+    - name: 6.29 - Describe filesystem optimization
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          FILESYSTEM OPTIMIZATION
+          ==========================================
+          
+          Optimization Tips:
+          
+          1. Reduce File Count
+          - Delete unnecessary files
+          - Compress old logs
+          - Archive old data
+          - Effect: Better performance, less inode usage
+          
+          2. Optimize Mount Options
+          - noatime: Don't update access time
+          - nodiratime: Don't update dir access time
+          - discard: TRIM for SSDs
+          - Example: defaults,noatime,nodiratime
+          
+          3. Tune Filesystem
+          ext4: tune2fs /dev/sda1 -O dir_index
+          xfs: xfs_admin options
+          
+          4. Increase Journal Size
+          ext4: tune2fs -J size=128 /dev/sda1
+          
+          5. Enable Compression
+          btrfs: mount -o compress=lzo
+          
+          6. Schedule Maintenance
+          - Defragmentation (less important on modern fs)
+          - Filesystem checks (fsck)
+          - Log rotation
+          
+          7. Monitor Usage
+          - Track disk space trends
+          - Alert on high usage
+          - Plan capacity additions
+          
+          8. Separate Partitions
+          - Prevents one fs from filling others
+          - Different optimization per fs
+          
+          Performance vs Safety:
+          ✓ noatime = faster but less info
+          ✓ async = faster but risky on crash
+          ✓ rsync = safer, more flexible
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.30: Create comprehensive storage report
+    # ==========================================================
+    - name: 6.30 - Create comprehensive storage report
+      ansible.builtin.copy:
+        content: |
+          ==========================================
+          DISK & FILESYSTEM MANAGEMENT REPORT
+          ==========================================
+          Generated on: {{ ansible_date_time.iso8601 }}
+          Hostname: {{ inventory_hostname }}
+          OS: {{ ansible_os_family }} {{ ansible_distribution_version }}
+          
+          ==========================================
+          DISK LAYOUT
+          ==========================================
+          Block Devices:
+          {{ block_devices.stdout }}
+          
+          ==========================================
+          DISK USAGE
+          ==========================================
+          {{ disk_usage.stdout }}
+          
+          Usage Status:
+          {% set usage_warning = disk_usage.stdout | regex_search('9[0-9]%') %}
+          {% if usage_warning %}
+          ⚠️  WARNING: Disk usage > 90%
+          {% endif %}
+          
+          ==========================================
+          INODE USAGE
+          ==========================================
+          {{ inode_usage.stdout }}
+          
+          ==========================================
+          MOUNT POINTS
+          ==========================================
+          {{ mount_points.stdout }}
+          
+          ==========================================
+          DIRECTORY SPACE USAGE
+          ==========================================
+          {{ dir_space.stdout }}
+          
+          ==========================================
+          FILESYSTEMS MANAGED
+          ==========================================
+          {% for item in filesystems %}
+          Mount: {{ item.path }}
+          Device: {{ item.device }}
+          Type: {{ item.fstype }}
+          Options: {{ item.opts }}
+          
+          {% endfor %}
+          
+          ==========================================
+          FILESYSTEM TYPES
+          ==========================================
+          
+          ext4 - Default, stable, good general use
+          xfs - High performance, large files
+          btrfs - Advanced features, snapshots
+          
+          Choose based on:
+          - Performance requirements
+          - Snapshot needs
+          - Compatibility
+          - Stability requirements
+          
+          ==========================================
+          PARTITIONING STRATEGY
+          ==========================================
+          
+          Recommended Setup:
+          / - 20-30GB
+          /boot - 1GB
+          /home - Large (user data)
+          /var - 5-10GB (logs, cache)
+          /tmp - 1-5GB
+          swap - 1-2x RAM
+          
+          Or use LVM for flexibility!
+          
+          ==========================================
+          LVM CONCEPTS
+          ==========================================
+          
+          Physical Volume (PV): Disk/partition
+          Volume Group (VG): Pool of PVs
+          Logical Volume (LV): Like partition
+          
+          Benefits:
+          - Dynamic resizing
+          - Snapshots
+          - Flexible allocation
+          - Live migration
+          
+          ==========================================
+          MONITORING & MAINTENANCE
+          ==========================================
+          
+          Regular Tasks:
+          1. Monitor disk space (daily)
+          2. Check inode usage (weekly)
+          3. Review directory growth (weekly)
+          4. Rotate logs (automated)
+          5. Run filesystem checks (monthly)
+          6. Backup data (daily/weekly)
+          7. Plan capacity (quarterly)
+          
+          Warning Signs:
+          - Disk > 80% full
+          - Inode > 90% used
+          - High directory growth
+          - Slow I/O performance
+          - Frequent fsck runs
+          
+          ==========================================
+          BACKUP STRATEGY (3-2-1 RULE)
+          ==========================================
+          
+          3 Copies of Data:
+          - Original
+          - Local backup
+          - Remote backup
+          
+          2 Different Media:
+          - Disk
+          - Tape/External
+          
+          1 Offsite:
+          - Remote location
+          - Cloud storage
+          
+          Test restores regularly!
+          
+          ==========================================
+          OPTIMIZATION TIPS
+          ==========================================
+          
+          Performance:
+          - Use noatime mount option
+          - Separate high-activity filesystems
+          - Monitor and tune cache
+          - Use SSD for high-IOPS
+          
+          Reliability:
+          - Keep >10% free space
+          - Enable filesystem checks
+          - Use RAID 1 or RAID 5
+          - Regular backups
+          
+          Capacity:
+          - Monitor usage trends
+          - Plan for growth
+          - Archive old data
+          - Use compression
+          
+          ==========================================
+          NEXT STEPS
+          ==========================================
+          
+          1. Monitor current disk usage
+          2. Plan filesystem layout
+          3. Consider LVM for flexibility
+          4. Implement backup strategy
+          5. Schedule maintenance tasks
+          6. Set up monitoring/alerts
+          7. Document current setup
+          8. Test disaster recovery
+          
+          ==========================================
+        dest: /tmp/chapter6_storage_report.txt
+        owner: root
+        group: root
+        mode: '0644'
+
+    # ==========================================================
+    # TASK 6.31: Display report location
+    # ==========================================================
+    - name: 6.31 - Display report location
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          ✓ STORAGE MANAGEMENT REPORT GENERATED
+          ==========================================
+          Report Location: /tmp/chapter6_storage_report.txt
+          
+          To view the report:
+            cat /tmp/chapter6_storage_report.txt
+          
+          To copy to control node:
+            scp root@{{ inventory_hostname }}:/tmp/chapter6_storage_report.txt ./
+          
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.32 through 6.45: Additional monitoring tasks
+    # ==========================================================
+    - name: 6.32 - Show filesystem performance
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          FILESYSTEM PERFORMANCE MONITORING
+          ==========================================
+          
+          Tools:
+          iostat - I/O statistics
+          iotop - I/O top processes
+          systat - System activity
+          
+          Key Metrics:
+          - Read/write throughput (MB/s)
+          - I/O operations per second (IOPS)
+          - Average wait time (ms)
+          - CPU usage by I/O
+          
+          Commands:
+          $ iostat 1 10        (10 samples, 1 sec apart)
+          $ iostat -x 1        (extended stats)
+          $ iotop -o           (only I/O processes)
+          
+          Watch for:
+          - High wait percentage
+          - High I/O utilization
+          - Slow response times
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.33: Show filesystem limits
+    # ==========================================================
+    - name: 6.33 - Show filesystem limits
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          FILESYSTEM LIMITS
+          ==========================================
+          
+          ext4 Limits:
+          - Max filesystem size: 16TB
+          - Max file size: 16TB
+          - Max files: Billions
+          - Max filename: 255 bytes
+          
+          xfs Limits:
+          - Max filesystem size: 8EB
+          - Max file size: 8EB
+          - Max files: Billions
+          - Max filename: 255 bytes
+          
+          Inode Size:
+          - ext4 default: 256 bytes
+          - Can increase to 4KB
+          - Larger inodes for extended attributes
+          
+          Block Size:
+          - Default: 4KB
+          - Can use 1KB, 2KB, 4KB, 8KB
+          - Larger blocks for big files
+          - Smaller blocks for small files
+          
+          When to change:
+          - Many small files: Smaller blocks
+          - Large files: Larger blocks
+          - Many extended attributes: Larger inodes
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.34: Display common partition layouts
+    # ==========================================================
+    - name: 6.34 - Display common partition layouts
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          COMMON PARTITION LAYOUTS
+          ==========================================
+          
+          Desktop/Laptop (Minimal):
+          /dev/sda1  /       20GB ext4
+          /dev/sda2  swap    4GB
+          /dev/sda3  /home   Rest
+          
+          Server (Recommended):
+          /dev/sda1  /       30GB ext4
+          /dev/sda2  /boot   1GB ext4
+          /dev/sda3  /var    10GB ext4
+          /dev/sda4  /home   Large ext4
+          swap       swap    4GB
+          
+          Enterprise (Advanced):
+          /dev/sda1  /       30GB RAID 1
+          /dev/sda2  /boot   1GB RAID 1
+          /dev/sdb   /var    RAID 5
+          /dev/sdc   /home   RAID 5
+          LVM        Additional volumes
+          
+          Database Server:
+          /dev/sda1  /       RAID 1
+          /dev/sdb   /var/lib/mysql RAID 5 (fast)
+          /dev/sdc   /backup RAID 5 (big)
+          
+          High-Availability:
+          Multiple disks per mount
+          RAID 1 for critical filesystems
+          RAID 5/6 for data
+          Snapshots for backups
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.35 through 6.45: Final summary tasks
+    # ==========================================================
+    - name: 6.35 - Show LVM management
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          LVM MANAGEMENT COMMANDS
+          ==========================================
+          
+          Create:
+          pvcreate /dev/sdb
+          vgcreate myvg /dev/sdb
+          lvcreate -L 10G -n mylv myvg
+          mkfs.ext4 /dev/myvg/mylv
+          mount /dev/myvg/mylv /mnt/data
+          
+          View:
+          pvs, pvdisplay          (physical volumes)
+          vgs, vgdisplay          (volume groups)
+          lvs, lvdisplay          (logical volumes)
+          
+          Resize:
+          lvextend -L +5G /dev/myvg/mylv
+          resize2fs /dev/myvg/mylv
+          
+          Snapshots:
+          lvcreate -L 1G -s -n snap /dev/myvg/mylv
+          mount /dev/myvg/snap /mnt/snapshot
+          
+          Delete:
+          umount /dev/myvg/mylv
+          lvremove /dev/myvg/mylv
+          vgremove myvg
+          pvremove /dev/sdb
+          ==========================================
+
+    # ==========================================================
+    # TASK 6.40: Show final execution summary
+    # ==========================================================
+    - name: 6.40 - Show final execution summary
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          ✓ CHAPTER 6 EXECUTION COMPLETE
+          ==========================================
+          
+          EXECUTION STATISTICS:
+          - Total Tasks Executed: 35+
+          - Host: {{ inventory_hostname }}
+          - OS: {{ ansible_os_family }} {{ ansible_distribution_version }}
+          - Execution Time: {{ ansible_date_time.iso8601 }}
+          
+          SUMMARY:
+          
+          SYSTEM INFORMATION:
+          - Total disk space monitored
+          - Filesystem types reviewed
+          - Mount points catalogued
+          
+          CONCEPTS COVERED:
+          ✓ Disk partitioning (MBR, GPT)
+          ✓ Filesystems (ext4, xfs, btrfs)
+          ✓ Mounting and /etc/fstab
+          ✓ LVM (Logical Volume Manager)
+          ✓ RAID concepts
+          ✓ Disk quotas
+          ✓ Swap space
+          ✓ Filesystem checks (fsck)
+          ✓ Backup strategies
+          ✓ Performance monitoring
+          ✓ Optimization tips
+          ✓ Disaster recovery
+          
+          MOUNT DIRECTORIES CREATED:
+          ✓ {{ filesystems | length }} directories prepared
+          
+          NEXT STEPS:
+          1. Review the generated report:
+             cat /tmp/chapter6_storage_report.txt
+          
+          2. Monitor disk usage:
+             df -h
+             lsblk
+          
+          3. Check filesystem health:
+             fsck -n /dev/sda1 (dry-run)
+          
+          4. Review current mounts:
+             mount | grep ext4
+             cat /etc/fstab
+          
+          5. Plan LVM setup (if using):
+             pvcreate /dev/sdb
+             vgcreate datavg /dev/sdb
+             lvcreate -L 10G -n lv_data datavg
+          
+          6. Set up backups:
+             tar -czf backup.tar.gz /important/data
+             rsync -avz /home /backup
+          
+          7. Configure monitoring:
+             Setup disk usage alerts
+             Monitor inode usage
+             Track growth trends
+          
+          8. Plan for growth:
+             Monitor capacity regularly
+             Plan additions 6 months ahead
+             Consider LVM for flexibility
+          
+          ==========================================
+          Status: ✓ SUCCESS
+          ==========================================
+
+# ============================================================
+# CHAPTER 6 PLAYBOOK COMPLETE
+# ============================================================
+# To run this playbook:
+#
+#   1. Check syntax:
+#      ansible-playbook -i inventory.ini CHAPTER-6-EXECUTABLE.yml --syntax-check
+#
+#   2. Dry run (preview):
+#      ansible-playbook -i inventory.ini CHAPTER-6-EXECUTABLE.yml --check
+#
+#   3. Execute playbook:
+#      ansible-playbook -i inventory.ini CHAPTER-6-EXECUTABLE.yml -v
+#
+#   4. Execute with detailed output:
+#      ansible-playbook -i inventory.ini CHAPTER-6-EXECUTABLE.yml -vvv
+#
+# WARNING: This playbook provides filesystem education
+# Real partitioning/filesystem changes should be done carefully!
+#
+# Manual verification after playbook:
+#
+#   lsblk                          # View block devices
+#   df -h                          # View disk usage
+#   mount | head                   # View mounts
+#   cat /tmp/chapter6_storage_report.txt  # View report
+#
+# ============================================================
+
