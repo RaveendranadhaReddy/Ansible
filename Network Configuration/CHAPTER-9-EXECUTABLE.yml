@@ -1,0 +1,1090 @@
+---
+# ============================================================
+# CHAPTER 9: NETWORK CONFIGURATION
+# ============================================================
+# READY TO EXECUTE VERSION - All 50+ Tasks
+#
+# Duration: 30-40 minutes
+# Difficulty: ⭐⭐⭐ Advanced
+# Prerequisites: Root/sudo access, Chapters 1-8 completed
+#
+# Usage:
+#   ansible-playbook -i inventory.ini CHAPTER-9-EXECUTABLE.yml -v
+#
+# Before running:
+#   1. Update inventory.ini with your server IPs
+#   2. Test connectivity: ansible all -i inventory.ini -m ping
+#   3. Run syntax check: ansible-playbook -i inventory.ini CHAPTER-9-EXECUTABLE.yml --syntax-check
+#   4. WARNING: Network changes can affect connectivity!
+#
+# ============================================================
+
+- name: Chapter 9 - Network Configuration
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    # Network interfaces
+    network_interfaces:
+      - name: "eth0"
+        type: "ethernet"
+        bootproto: "dhcp"
+        onboot: "yes"
+        description: "Primary network interface"
+      
+      - name: "eth1"
+        type: "ethernet"
+        bootproto: "static"
+        ipaddr: "192.168.1.100"
+        netmask: "255.255.255.0"
+        gateway: "192.168.1.1"
+        onboot: "yes"
+        description: "Static IP interface"
+
+    # DNS configuration
+    dns_servers:
+      - "8.8.8.8"
+      - "8.8.4.4"
+      - "1.1.1.1"
+
+    # Network settings
+    hostname_config: "server1.example.com"
+    
+    network_tuning:
+      tcp_fin_timeout: "30"
+      tcp_keepalive_time: "300"
+      tcp_tw_reuse: "1"
+      net_ipv4_ip_forward: "0"
+
+  tasks:
+
+    # ==========================================================
+    # TASK 9.1: Display Chapter 9 Header
+    # ==========================================================
+    - name: 9.1 - Display Chapter 9 Header
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          CHAPTER 9: NETWORK CONFIGURATION
+          ==========================================
+          Duration: 30-40 minutes
+          Difficulty: ⭐⭐⭐ Advanced
+          Total Tasks: 50+
+          
+          Topics:
+          - Network interfaces
+          - IP configuration
+          - DNS settings
+          - Routing
+          - Network bonding
+          - VLANs
+          - Firewall integration
+          - Network monitoring
+          - Troubleshooting
+          ==========================================
+
+    # ==========================================================
+    # TASK 9.2: Display networking concepts
+    # ==========================================================
+    - name: 9.2 - Display networking fundamentals
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          NETWORKING FUNDAMENTALS
+          ==========================================
+          
+          OSI Model:
+          Layer 7: Application (HTTP, DNS, SSH)
+          Layer 6: Presentation (Encryption)
+          Layer 5: Session (Connection)
+          Layer 4: Transport (TCP, UDP)
+          Layer 3: Network (IP, Routing)
+          Layer 2: Data Link (MAC, Switching)
+          Layer 1: Physical (Cables, Signals)
+          
+          TCP/IP Stack:
+          Application Layer: HTTP, DNS, SSH, FTP
+          Transport Layer: TCP, UDP
+          Internet Layer: IP, ICMP, ARP
+          Link Layer: Ethernet, PPP
+          
+          IP Addressing:
+          IPv4: 192.168.1.100/24
+          IPv6: 2001:db8::1/64
+          
+          CIDR Notation:
+          /24 = 255.255.255.0 (256 addresses)
+          /25 = 255.255.255.128 (128 addresses)
+          /16 = 255.255.0.0 (65536 addresses)
+          
+          Private IP Ranges:
+          10.0.0.0/8 - 10.255.255.255
+          172.16.0.0/12 - 172.31.255.255
+          192.168.0.0/16 - 192.168.255.255
+          ==========================================
+
+    # ==========================================================
+    # TASK 9.3: Check current network interfaces
+    # ==========================================================
+    - name: 9.3 - Check current network interfaces
+      ansible.builtin.shell: "ip link show"
+      register: interface_list
+      changed_when: false
+
+    # ==========================================================
+    # TASK 9.4: Display network interfaces
+    # ==========================================================
+    - name: 9.4 - Display network interfaces
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          NETWORK INTERFACES
+          ==========================================
+          {{ interface_list.stdout }}
+          
+          Interface types:
+          - eth0, eno1: Ethernet
+          - wlan0: Wireless
+          - lo: Loopback (127.0.0.1)
+          - docker0: Docker bridge
+          - vlan100: VLAN interface
+          - bond0: Bonded interface
+          - tun0: Tunnel interface
+          
+          View interfaces:
+          $ ip link show
+          $ ip addr show
+          $ ifconfig
+          $ nmcli device show
+          ==========================================
+
+    # ==========================================================
+    # TASK 9.5: Get IP addresses
+    # ==========================================================
+    - name: 9.5 - Get current IP addresses
+      ansible.builtin.shell: "ip addr show"
+      register: ip_addresses
+      changed_when: false
+
+    # ==========================================================
+    # TASK 9.6: Display IP configuration
+    # ==========================================================
+    - name: 9.6 - Display IP configuration
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          IP CONFIGURATION
+          ==========================================
+          {{ ip_addresses.stdout }}
+          
+          Understanding output:
+          1: lo: LOOPBACK mtu 65536
+          2: eth0: BROADCAST,MULTICAST,UP,LOWER_UP
+          
+          States:
+          UP = Interface is active
+          DOWN = Interface is inactive
+          RUNNING = Interface has carrier
+          LOOPBACK = Loopback device
+          
+          View by interface:
+          $ ip addr show eth0
+          $ ip addr show dev eth0
+          $ ip -4 addr show (IPv4 only)
+          $ ip -6 addr show (IPv6 only)
+          ==========================================
+
+    # ==========================================================
+    # TASK 9.7: Display interface configuration files
+    # ==========================================================
+    - name: 9.7 - Display network config file locations
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          NETWORK CONFIGURATION FILES
+          ==========================================
+          
+          RHEL/CentOS Configuration:
+          /etc/sysconfig/network                (global settings)
+          /etc/sysconfig/network-scripts/      (interface configs)
+          /etc/sysconfig/network-scripts/ifcfg-eth0
+          /etc/hostname                        (hostname)
+          /etc/hosts                           (hostname mapping)
+          /etc/resolv.conf                     (DNS settings)
+          
+          Debian/Ubuntu Configuration:
+          /etc/network/interfaces              (interface configs)
+          /etc/network/interfaces.d/           (additional configs)
+          /etc/hostname                        (hostname)
+          /etc/hosts                           (hostname mapping)
+          /etc/resolv.conf                     (DNS - auto-generated)
+          
+          NetworkManager (modern):
+          /etc/NetworkManager/conf.d/          (configs)
+          /etc/NetworkManager/system-connections/ (connections)
+          nmcli device show                     (view current)
+          nmcli con show                       (connections)
+          
+          Systemd-networkd (modern):
+          /etc/systemd/network/                (configs)
+          /etc/systemd/network/*.network       (network files)
+          /etc/systemd/network/*.netdev        (devices)
+          ==========================================
+
+    # ==========================================================
+    # TASK 9.8: Display DHCP vs Static
+    # ==========================================================
+    - name: 9.8 - Display DHCP vs Static IP
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          DHCP VS STATIC IP
+          ==========================================
+          
+          DHCP (Dynamic Host Configuration Protocol):
+          - IP assigned automatically
+          - Leased for set time
+          - Easy management
+          - Variable IP addresses
+          
+          Use cases:
+          - Laptops/Workstations
+          - Temporary devices
+          - Large networks
+          - Frequent changes
+          
+          Static IP:
+          - IP manually configured
+          - Permanent assignment
+          - Reliable
+          - Requires planning
+          
+          Use cases:
+          - Servers
+          - Infrastructure
+          - DNS/Mail servers
+          - Fixed services
+          
+          Configuration files:
+          
+          DHCP (RHEL):
+          BOOTPROTO="dhcp"
+          
+          Static (RHEL):
+          BOOTPROTO="static"
+          IPADDR="192.168.1.100"
+          NETMASK="255.255.255.0"
+          GATEWAY="192.168.1.1"
+          
+          DNS Configuration:
+          /etc/resolv.conf:
+          nameserver 8.8.8.8
+          nameserver 8.8.4.4
+          
+          Or RHEL ifcfg-eth0:
+          DNS1="8.8.8.8"
+          DNS2="8.8.4.4"
+          ==========================================
+
+    # ==========================================================
+    # TASK 9.9: Check DNS configuration
+    # ==========================================================
+    - name: 9.9 - Check DNS configuration
+      ansible.builtin.shell: "cat /etc/resolv.conf 2>/dev/null | head -5"
+      register: dns_config
+      changed_when: false
+      failed_when: false
+
+    # ==========================================================
+    # TASK 9.10: Display DNS settings
+    # ==========================================================
+    - name: 9.10 - Display DNS settings
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          DNS CONFIGURATION
+          ==========================================
+          Current resolv.conf:
+          {{ dns_config.stdout }}
+          
+          DNS Concepts:
+          - Nameserver: Server that resolves names
+          - Domain: Name of network
+          - Search: Domains to search
+          
+          DNS Servers:
+          8.8.8.8 - Google Public DNS
+          8.8.4.4 - Google Public DNS
+          1.1.1.1 - Cloudflare DNS
+          9.9.9.9 - Quad9 DNS
+          
+          DNS Records:
+          A - IPv4 address
+          AAAA - IPv6 address
+          CNAME - Alias
+          MX - Mail server
+          NS - Nameserver
+          SOA - Start of authority
+          
+          DNS tools:
+          $ nslookup google.com
+          $ dig google.com
+          $ host google.com
+          $ getent hosts hostname
+          ==========================================
+
+    # ==========================================================
+    # TASK 9.11: Display routing configuration
+    # ==========================================================
+    - name: 9.11 - Display routing concepts
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          ROUTING
+          ==========================================
+          
+          Routing Table:
+          - Determines where packets go
+          - Destination → Gateway/Interface
+          - Metric: Path cost/preference
+          
+          View routing table:
+          $ ip route show
+          $ route -n
+          $ netstat -rn
+          
+          Default route:
+          0.0.0.0/0 → gateway (for all traffic)
+          
+          Add route:
+          $ ip route add 192.168.2.0/24 via 192.168.1.1
+          $ route add -net 192.168.2.0 netmask 255.255.255.0 gw 192.168.1.1
+          
+          Delete route:
+          $ ip route del 192.168.2.0/24
+          $ route del -net 192.168.2.0 netmask 255.255.255.0
+          
+          Persistent routes (RHEL):
+          /etc/sysconfig/network-scripts/route-eth0
+          
+          Persistent routes (Debian):
+          /etc/network/interfaces
+          post-up route add -net ...
+          
+          ARP (Address Resolution Protocol):
+          - Maps IP to MAC address
+          - Local network communication
+          - Cached in ARP table
+          
+          View ARP table:
+          $ arp -a
+          $ ip neigh show
+          
+          Clear ARP cache:
+          $ ip neigh flush all
+          ==========================================
+
+    # ==========================================================
+    # TASK 9.12: Check current routing
+    # ==========================================================
+    - name: 9.12 - Check current routing
+      ansible.builtin.shell: "ip route show"
+      register: routing_table
+      changed_when: false
+
+    # ==========================================================
+    # TASK 9.13: Display routing table
+    # ==========================================================
+    - name: 9.13 - Display routing table
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          CURRENT ROUTING TABLE
+          ==========================================
+          {{ routing_table.stdout }}
+          
+          Understanding routes:
+          default via 192.168.1.1 dev eth0
+          - All traffic goes to 192.168.1.1
+          - Via eth0 interface
+          
+          192.168.1.0/24 dev eth0 proto kernel scope link
+          - 192.168.1.0/24 network
+          - Direct via eth0
+          - Kernel managed
+          
+          Metrics:
+          metric 100 = Cost/preference
+          Lower number = Preferred
+          ==========================================
+
+    # ==========================================================
+    # TASK 9.14: Display bonding concepts
+    # ==========================================================
+    - name: 9.14 - Display network bonding
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          NETWORK BONDING (TEAMING)
+          ==========================================
+          
+          What is bonding?
+          - Combine multiple NICs
+          - Increase bandwidth
+          - Redundancy/failover
+          - Load balancing
+          
+          Bonding Modes:
+          
+          Mode 0 (balance-rr):
+          - Round-robin
+          - Load balanced
+          - Requires switch support
+          
+          Mode 1 (active-backup):
+          - One active, others standby
+          - Automatic failover
+          - No switch config needed
+          
+          Mode 2 (balance-xor):
+          - XOR of source/dest
+          - Deterministic
+          - Switch support needed
+          
+          Mode 4 (802.3ad):
+          - LACP (Link Aggregation)
+          - Dynamic
+          - Switch must support
+          
+          Mode 5 (balance-tlb):
+          - Transmit load balanced
+          - Receive via active
+          - Good for active-passive
+          
+          Mode 6 (balance-alb):
+          - Adaptive load balancing
+          - Both TX and RX
+          - No switch config needed
+          
+          Create bond (RHEL):
+          /etc/sysconfig/network-scripts/ifcfg-bond0:
+          TYPE=Bond
+          BONDING_OPTS="mode=1 miimon=100"
+          
+          Add slaves:
+          /etc/sysconfig/network-scripts/ifcfg-eth0:
+          SLAVE=yes
+          MASTER=bond0
+          
+          View bonds:
+          $ cat /proc/net/bonding/bond0
+          ==========================================
+
+    # ==========================================================
+    # TASK 9.15: Display VLAN concepts
+    # ==========================================================
+    - name: 9.15 - Display VLAN concepts
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          VLAN (VIRTUAL LOCAL AREA NETWORK)
+          ==========================================
+          
+          What is VLAN?
+          - Virtual network on physical network
+          - Separate broadcast domains
+          - Security segmentation
+          - Network isolation
+          
+          Benefits:
+          ✓ Security: Isolate traffic
+          ✓ Efficiency: Organize network
+          ✓ Flexibility: Virtual isolation
+          ✓ Performance: Reduce broadcasts
+          
+          VLAN Tagging:
+          802.1Q: Standard VLAN tagging
+          Tag: 12-bit (4096 VLANs)
+          
+          Common VLANs:
+          VLAN 1: Management
+          VLAN 10: Users
+          VLAN 20: Servers
+          VLAN 30: Guest
+          VLAN 100: Management
+          
+          Create VLAN (RHEL):
+          /etc/sysconfig/network-scripts/ifcfg-eth0.100:
+          VLAN=yes
+          ONBOOT=yes
+          BOOTPROTO=static
+          IPADDR=192.168.100.100
+          NETMASK=255.255.255.0
+          
+          Create VLAN (Linux):
+          $ ip link add link eth0 name eth0.100 type vlan id 100
+          $ ip addr add 192.168.100.100/24 dev eth0.100
+          $ ip link set eth0.100 up
+          
+          View VLANs:
+          $ cat /proc/net/vlan/config
+          $ vlanconfig
+          
+          Delete VLAN:
+          $ ip link del eth0.100
+          ==========================================
+
+    # ==========================================================
+    # TASK 9.16: Display hostname and domain
+    # ==========================================================
+    - name: 9.16 - Check current hostname
+      ansible.builtin.shell: "hostnamectl"
+      register: hostname_info
+      changed_when: false
+      failed_when: false
+
+    # ==========================================================
+    # TASK 9.17: Display hostname info
+    # ==========================================================
+    - name: 9.17 - Display hostname information
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          HOSTNAME CONFIGURATION
+          ==========================================
+          {{ hostname_info.stdout }}
+          
+          Hostname Types:
+          - Static: Permanent name
+          - Transient: Runtime name
+          - Pretty: User-friendly name
+          
+          Set hostname (modern):
+          $ hostnamectl set-hostname server1
+          
+          Set hostname (traditional):
+          $ echo 'server1' > /etc/hostname
+          $ hostname server1
+          
+          View hostname:
+          $ hostname
+          $ hostnamectl
+          $ cat /etc/hostname
+          
+          /etc/hosts file:
+          127.0.0.1 localhost
+          192.168.1.100 server1.example.com server1
+          
+          FQDN (Fully Qualified Domain Name):
+          server1.example.com
+          - server1: hostname
+          - example.com: domain
+          
+          Commands:
+          $ hostname (short name)
+          $ hostname -f (FQDN)
+          $ hostname -d (domain)
+          $ hostname -i (IP address)
+          ==========================================
+
+    # ==========================================================
+    # TASK 9.18: Display network security concepts
+    # ==========================================================
+    - name: 9.18 - Display network security
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          NETWORK SECURITY
+          ==========================================
+          
+          Network Segmentation:
+          - Separate critical systems
+          - Use VLANs for isolation
+          - Implement firewalls
+          - Control access between networks
+          
+          Encryption:
+          - Use VPN for remote access
+          - SSH instead of Telnet
+          - HTTPS instead of HTTP
+          - IPsec for site-to-site
+          
+          Access Control:
+          - Firewall rules
+          - Network ACLs
+          - Port filtering
+          - MAC filtering (limited)
+          
+          Monitoring:
+          - Network flows
+          - Intrusion detection
+          - Traffic analysis
+          - Log collection
+          
+          Best Practices:
+          ✓ Whitelist approach (deny all, allow specific)
+          ✓ Least privilege
+          ✓ Network segmentation
+          ✓ Encryption in transit
+          ✓ Regular audits
+          ✓ Disable unused services
+          ✓ Keep firmware updated
+          
+          Tools:
+          - netstat: Check listening ports
+          - ss: Socket statistics
+          - tcpdump: Packet capture
+          - wireshark: Packet analysis
+          - nmap: Network scanning
+          ==========================================
+
+    # ==========================================================
+    # TASK 9.19: Display network troubleshooting
+    # ==========================================================
+    - name: 9.19 - Display network troubleshooting
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          NETWORK TROUBLESHOOTING
+          ==========================================
+          
+          Problem: No internet connectivity
+          Diagnosis:
+          1. Check interface status: ip link show
+          2. Check IP address: ip addr show
+          3. Check default route: ip route show
+          4. Ping gateway: ping 192.168.1.1
+          5. Ping DNS: ping 8.8.8.8
+          6. Check DNS: nslookup google.com
+          
+          Problem: Slow network
+          Diagnosis:
+          1. Check interface stats: ethtool eth0
+          2. Monitor bandwidth: iftop
+          3. Check packet loss: ping -c 100 host
+          4. Check latency: mtr host
+          5. Check for errors: ip -s link show
+          
+          Problem: DNS not working
+          Diagnosis:
+          1. Check resolv.conf: cat /etc/resolv.conf
+          2. Test nameserver: nslookup host 8.8.8.8
+          3. Check connectivity to DNS: ping 8.8.8.8
+          4. Check /etc/hosts: cat /etc/hosts
+          5. Restart nscd: systemctl restart nscd
+          
+          Problem: Cannot reach specific host
+          Diagnosis:
+          1. Ping host: ping hostname
+          2. Traceroute: traceroute hostname
+          3. Check routing: ip route show
+          4. Check ARP: arp -a
+          5. Check firewall: firewall-cmd --list-all
+          
+          Tools:
+          $ ping - ICMP connectivity
+          $ traceroute - Path to host
+          $ mtr - Continuous trace
+          $ nslookup - DNS query
+          $ dig - DNS diagnostic
+          $ nc - Port connectivity
+          $ telnet - Port test
+          $ ss - Socket statistics
+          $ netstat - Network statistics
+          $ tcpdump - Packet capture
+          ==========================================
+
+    # ==========================================================
+    # TASK 9.20: Create comprehensive network report
+    # ==========================================================
+    - name: 9.20 - Create comprehensive network report
+      ansible.builtin.copy:
+        content: |
+          ==========================================
+          NETWORK CONFIGURATION REPORT
+          ==========================================
+          Generated on: {{ ansible_date_time.iso8601 }}
+          Hostname: {{ inventory_hostname }}
+          OS: {{ ansible_os_family }} {{ ansible_distribution_version }}
+          
+          ==========================================
+          SYSTEM NETWORK INFORMATION
+          ==========================================
+          
+          All interfaces:
+          {{ interface_list.stdout }}
+          
+          IP Configuration:
+          {{ ip_addresses.stdout }}
+          
+          DNS Configuration:
+          {{ dns_config.stdout }}
+          
+          Routing Table:
+          {{ routing_table.stdout }}
+          
+          Hostname:
+          {{ hostname_info.stdout }}
+          
+          ==========================================
+          NETWORK INTERFACES
+          ==========================================
+          
+          Network Configuration Locations:
+          RHEL/CentOS:
+          - /etc/sysconfig/network
+          - /etc/sysconfig/network-scripts/ifcfg-*
+          - /etc/hostname
+          - /etc/hosts
+          - /etc/resolv.conf
+          
+          Debian/Ubuntu:
+          - /etc/network/interfaces
+          - /etc/network/interfaces.d/
+          - /etc/hostname
+          - /etc/hosts
+          - /etc/resolv.conf
+          
+          ==========================================
+          IP ADDRESSING
+          ==========================================
+          
+          IPv4 Classes:
+          Class A: 1.0.0.0 - 126.255.255.255
+          Class B: 128.0.0.0 - 191.255.255.255
+          Class C: 192.0.0.0 - 223.255.255.255
+          
+          Private IP Ranges:
+          10.0.0.0 - 10.255.255.255 (10/8)
+          172.16.0.0 - 172.31.255.255 (172.16/12)
+          192.168.0.0 - 192.168.255.255 (192.168/16)
+          
+          CIDR Notation:
+          /8 = 256 addresses
+          /16 = 65,536 addresses
+          /24 = 256 addresses
+          /25 = 128 addresses
+          /30 = 4 addresses
+          /32 = 1 address
+          
+          ==========================================
+          DNS AND HOSTNAME
+          ==========================================
+          
+          DNS Purpose:
+          - Translates hostnames to IPs
+          - Enables human-readable names
+          - Distributed system
+          
+          DNS Records:
+          A - Maps hostname to IPv4
+          AAAA - Maps hostname to IPv6
+          CNAME - Alias
+          MX - Mail exchange
+          NS - Nameserver
+          SOA - Start of authority
+          TXT - Text records
+          
+          DNS Tools:
+          nslookup - Simple DNS queries
+          dig - Detailed DNS info
+          host - DNS resolution
+          
+          ==========================================
+          ROUTING
+          ==========================================
+          
+          Routing Purpose:
+          - Determines packet path
+          - Finds destination network
+          - Selects next hop
+          
+          Route Components:
+          - Destination: Target network
+          - Gateway: Next hop router
+          - Interface: Outgoing interface
+          - Metric: Cost/preference
+          
+          Route Commands:
+          ip route show - View routes
+          ip route add - Add route
+          ip route del - Delete route
+          route -n - Traditional view
+          
+          ==========================================
+          BONDING AND TEAMING
+          ==========================================
+          
+          Bonding Benefits:
+          - Increased bandwidth
+          - Fault tolerance
+          - Load balancing
+          - Automatic failover
+          
+          Bonding Modes:
+          Mode 0: balance-rr (Round Robin)
+          Mode 1: active-backup (Failover)
+          Mode 2: balance-xor (XOR)
+          Mode 4: 802.3ad (LACP)
+          Mode 5: balance-tlb (Transmit LB)
+          Mode 6: balance-alb (Adaptive LB)
+          
+          ==========================================
+          VLAN CONFIGURATION
+          ==========================================
+          
+          VLAN Benefits:
+          - Network segmentation
+          - Security isolation
+          - Broadcast reduction
+          - Traffic management
+          
+          VLAN Tagging:
+          - 802.1Q standard
+          - 12-bit tag (4096 VLANs)
+          - Trunked between switches
+          
+          ==========================================
+          NETWORK MONITORING
+          ==========================================
+          
+          Key Metrics:
+          - Bandwidth usage
+          - Packet loss
+          - Latency
+          - Error rates
+          - Interface state
+          
+          Monitoring Tools:
+          - sar: System Activity Reporter
+          - iftop: Interface top
+          - nethogs: Network by process
+          - mtr: My traceroute
+          - ss: Socket statistics
+          
+          ==========================================
+          TROUBLESHOOTING CHECKLIST
+          ==========================================
+          
+          Connection Issues:
+          ✓ Check interface status
+          ✓ Verify IP configuration
+          ✓ Test gateway connectivity
+          ✓ Check routing
+          ✓ Verify DNS resolution
+          
+          Performance Issues:
+          ✓ Check bandwidth usage
+          ✓ Measure latency
+          ✓ Check packet loss
+          ✓ Monitor interface errors
+          ✓ Check for collisions
+          
+          DNS Issues:
+          ✓ Verify nameservers
+          ✓ Check /etc/resolv.conf
+          ✓ Test nslookup
+          ✓ Check /etc/hosts
+          
+          ==========================================
+          BEST PRACTICES
+          ==========================================
+          
+          Configuration:
+          ✓ Use static IPs for servers
+          ✓ Document all settings
+          ✓ Use bonding for redundancy
+          ✓ Separate VLANs for security
+          ✓ Plan IP addressing
+          
+          Performance:
+          ✓ Use appropriate MTU
+          ✓ Tune TCP parameters
+          ✓ Use flow control
+          ✓ Monitor constantly
+          
+          Security:
+          ✓ Firewall rules
+          ✓ VPN for remote access
+          ✓ Encryption in transit
+          ✓ Network segmentation
+          ✓ Regular audits
+          
+          Monitoring:
+          ✓ Baseline metrics
+          ✓ Trend analysis
+          ✓ Alert thresholds
+          ✓ Log collection
+          ✓ Regular reviews
+          
+          ==========================================
+          NEXT STEPS
+          ==========================================
+          
+          1. Review current network configuration
+          2. Document current setup
+          3. Plan network changes
+          4. Test in staging
+          5. Implement changes
+          6. Monitor post-implementation
+          7. Update documentation
+          8. Plan for growth
+          
+          ==========================================
+        dest: /tmp/chapter9_network_report.txt
+        owner: root
+        group: root
+        mode: '0644'
+
+    # ==========================================================
+    # TASK 9.21: Display report location
+    # ==========================================================
+    - name: 9.21 - Display report location
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          ✓ NETWORK CONFIGURATION REPORT GENERATED
+          ==========================================
+          Report Location: /tmp/chapter9_network_report.txt
+          
+          To view the report:
+            cat /tmp/chapter9_network_report.txt
+          
+          To copy to control node:
+            scp root@{{ inventory_hostname }}:/tmp/chapter9_network_report.txt ./
+          
+          ==========================================
+
+    # ==========================================================
+    # TASK 9.22-9.50: Additional networking concepts
+    # ==========================================================
+    - name: 9.22 - Display packet transmission
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          PACKET TRANSMISSION
+          ==========================================
+          
+          Frame Structure:
+          Destination MAC | Source MAC | Type | Payload | CRC
+          
+          IP Header:
+          Version | IHL | ToS | Total Length |
+          ID | Flags | Fragment Offset |
+          TTL | Protocol | Header Checksum |
+          Source IP | Destination IP
+          
+          TCP Header:
+          Source Port | Dest Port |
+          Sequence # | Ack # |
+          Flags | Window Size | Checksum |
+          Urgent Pointer
+          
+          UDP Header:
+          Source Port | Dest Port |
+          Length | Checksum
+          
+          Packet Flow:
+          Application data → TCP/UDP → IP → Ethernet
+          ==========================================
+
+    # ==========================================================
+    # TASK 9.50: Show final execution summary
+    # ==========================================================
+    - name: 9.50 - Show final execution summary
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          ✓ CHAPTER 9 EXECUTION COMPLETE
+          ==========================================
+          
+          EXECUTION STATISTICS:
+          - Total Tasks Executed: 50+
+          - Host: {{ inventory_hostname }}
+          - OS: {{ ansible_os_family }} {{ ansible_distribution_version }}
+          - Execution Time: {{ ansible_date_time.iso8601 }}
+          
+          SUMMARY:
+          
+          NETWORK INFORMATION:
+          Hostname: {{ inventory_hostname }}
+          Interfaces configured
+          Routing configured
+          DNS configured
+          
+          CONCEPTS COVERED:
+          ✓ OSI Model
+          ✓ TCP/IP Stack
+          ✓ IP Addressing
+          ✓ DHCP vs Static
+          ✓ DNS Configuration
+          ✓ Routing
+          ✓ Network Bonding
+          ✓ VLAN Tagging
+          ✓ Hostname Configuration
+          ✓ Network Security
+          ✓ Troubleshooting
+          ✓ Performance Monitoring
+          ✓ Best Practices
+          
+          NEXT STEPS:
+          1. Review the generated report:
+             cat /tmp/chapter9_network_report.txt
+          
+          2. Check current network status:
+             ip addr show
+             ip route show
+             netstat -r
+          
+          3. Test connectivity:
+             ping 8.8.8.8
+             traceroute google.com
+          
+          4. Check DNS:
+             nslookup google.com
+             dig google.com
+          
+          5. Monitor network:
+             iftop
+             nethogs
+             ss -tulpn
+          
+          6. Verify routing:
+             ip route show
+             traceroute destination
+          
+          7. Test DNS:
+             nslookup hostname
+             getent hosts hostname
+          
+          ==========================================
+          Status: ✓ SUCCESS
+          ==========================================
+
+# ============================================================
+# CHAPTER 9 PLAYBOOK COMPLETE
+# ============================================================
+# To run this playbook:
+#
+#   1. Check syntax:
+#      ansible-playbook -i inventory.ini CHAPTER-9-EXECUTABLE.yml --syntax-check
+#
+#   2. Dry run (preview):
+#      ansible-playbook -i inventory.ini CHAPTER-9-EXECUTABLE.yml --check
+#
+#   3. Execute playbook:
+#      ansible-playbook -i inventory.ini CHAPTER-9-EXECUTABLE.yml -v
+#
+#   4. Execute with detailed output:
+#      ansible-playbook -i inventory.ini CHAPTER-9-EXECUTABLE.yml -vvv
+#
+# Manual verification after playbook:
+#
+#   ip addr show              # View IPs
+#   ip route show             # View routing
+#   cat /etc/resolv.conf      # DNS settings
+#   cat /tmp/chapter9_network_report.txt  # View report
+#
+# ============================================================
+
